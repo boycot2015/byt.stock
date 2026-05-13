@@ -1,22 +1,22 @@
 <template>
-  <div class="min-h-screen bg-gray-100 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+  <div class="min-h-screen flex flex-col justify-center py-12 sm:px-6 lg:px-8">
     <div class="sm:mx-auto sm:w-full sm:max-w-md">
-      <h2 class="mt-6 text-center text-3xl font-bold text-gray-900">登录您的账户</h2>
-      <p class="mt-2 text-center text-sm text-gray-600">
+      <h2 class="mt-6 text-center text-3xl font-bold">登录您的账户</h2>
+      <p class="mt-2 text-center text-sm">
         还没有账户？
         <router-link to="/register" class="font-medium text-blue-600 hover:text-blue-500"> 立即注册 </router-link>
       </p>
     </div>
 
     <div class="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-      <div class="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+      <div class="bg-[var(--color-bg)] py-8 px-4 shadow sm:rounded-lg sm:px-10">
         <a-form :model="loginForm" layout="vertical" @finish="handleLogin">
           <a-form-item label="用户名/邮箱" name="username" :rules="[{ required: true, message: '请输入用户名/邮箱' }]">
-            <a-input v-model="loginForm.username" size="large" placeholder="请输入用户名或邮箱" />
+            <a-input v-model:value="loginForm.username" size="large" placeholder="请输入用户名或邮箱" />
           </a-form-item>
 
           <a-form-item label="密码" name="password" :rules="[{ required: true, message: '请输入密码' }]">
-            <a-input-password v-model="loginForm.password" size="large" placeholder="请输入密码" />
+            <a-input-password v-model:value="loginForm.password" size="large" placeholder="请输入密码" />
           </a-form-item>
 
           <a-form-item>
