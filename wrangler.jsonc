@@ -1,0 +1,30 @@
+// Cloudflare Workers 配置文件 (JSONC 格式，支持注释)
+{
+  "name": "stock-api-worker",
+  "main": "worker.js",
+  "compatibility_date": "2024-04-05",
+  "env": {
+    "dev": {
+      "name": "stock-api-worker",
+      "vars": {
+        "AK_API_KEY": "123456",
+        "JHE_API_KEY": "123456"
+      }
+    },
+    "production": {
+      "name": "stock-api-worker",
+      "vars": {
+        "AK_API_KEY": "123456",
+        "JHE_API_KEY": "123456"
+      }
+    }
+  },
+	"kv_namespaces": [
+		{
+		"binding": "STOCK_KV",
+		"id": "2ba510966d7d48e5bdfc95b6fe4316a8",
+		// Optional: preview_id used when running `wrangler dev` for local dev
+		"preview_id": "<ID_OF_PREVIEW_KV_NAMESPACE_FOR_LOCAL_DEVELOPMENT>"
+		}
+	]
+}
