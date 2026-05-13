@@ -11,7 +11,7 @@
       '--color-primary': themeToken.colorPrimary,
       '--border-color': themeToken.colorBorderSecondary
     }">
-      <a-affix top="0px">
+      <a-affix top="0px" v-if="userStore.token">
         <Header />
       </a-affix>
       <router-view />
@@ -47,8 +47,10 @@ import zhCN from 'ant-design-vue/es/locale/zh_CN'
 import Header from '@/components/Header.vue'
 import Footer from '@/components/Footer.vue'
 import { useDark } from '@vueuse/core';
+import { useUserStore } from '@/store/user';
 import Icon from '@ant-design/icons-vue';
 import { useTheme } from '@/hooks/useTheme';
+const userStore = useUserStore()
 const { themeToken, darkAlgorithm } = useTheme()
 const isDark = useDark();
 const toggleDark = () => isDark.value = !isDark.value
