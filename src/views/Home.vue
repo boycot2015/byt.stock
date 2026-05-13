@@ -20,5 +20,4 @@ import MarketIndex from '@/components/MarketIndex.vue'
 import SelfStockList from '@/components/SelfStockList.vue'
 import StockDetail from '@/components/StockDetail.vue'
 import MarketRank from '@/components/MarketRank.vue'
-import { theme } from 'ant-design-vue';
 </script>

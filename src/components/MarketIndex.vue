@@ -27,8 +27,6 @@
 import { ref, onMounted } from 'vue'
 import { getMarketIndex, type MarketIndex as MarketIndexType } from '@/api/stock'
 import { useStockStore } from '@/store/stock'
-import { useTheme } from '@/hooks/useTheme'
-const { themeToken } = useTheme()
 const stockStore = useStockStore()
 const indexList = ref<MarketIndexType[]>([])
 
