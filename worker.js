@@ -223,6 +223,147 @@ export default {
       return result
     }
 
+    // 根据分类获取新闻列表
+    const fetchNewsByCategory = async (lid, page, count) => {
+      const apiUrl = `https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=${lid}&num=${count}&page=${page}`
+      const res = await fetch(apiUrl, {
+        headers: { Referer: 'https://finance.sina.com.cn' },
+      })
+      const result = await res.json()
+
+      if (!result || !result.result || !result.result.data) {
+        return []
+      }
+
+      return result.result.data.map((item) => ({
+        id: item.id,
+        title: item.title,
+        summary: item.summary || '',
+        source: item.source || '新浪财经',
+        publishTime: item.pubtime,
+        url: item.url,
+      }))
+    }
+
+    // 根据股票代码获取个股行情动态
+    const fetchStockNewsByCode = async (code, count) => {
+      const market = isShStock(code) ? 'sh' : 'sz'
+      const result = {}
+
+      try {
+        const stockApi = `http://hq.sinajs.cn/list=${market}${code}`
+        const stockRes = await fetch(stockApi, {
+          headers: { Referer: 'https://finance.sina.com.cn' },
+        })
+        const stockText = await decodeGBK(stockRes)
+        const stockMatch = stockText.match(/var hq_str_\w+="([^"]+)"/)
+
+        if (stockMatch) {
+          const arr = stockMatch[1].split(',')
+          const price = parseFloat(arr[3])
+          const preClose = parseFloat(arr[2])
+          const change = price - preClose
+          const changePercent = preClose ? (change / preClose) * 100 : 0
+
+          result.stock = {
+            code,
+            name: arr[0],
+            price,
+            change: Number(change.toFixed(2)),
+            changePercent: Number(changePercent.toFixed(2)),
+            volume: parseInt(arr[8]) || 0,
+            amount: parseFloat(arr[9]) || 0,
+            high: parseFloat(arr[4]) || 0,
+            low: parseFloat(arr[5]) || 0,
+            open: parseFloat(arr[1]) || 0,
+            preClose,
+            turnoverRate: parseFloat(arr[10] / 100) || 0,
+            pe: parseFloat(arr[12]) || 0,
+            marketValue: parseFloat(arr[17]) || 0,
+          }
+        }
+      } catch (e) {
+        console.error(`获取股票${code}行情失败:`, e)
+      }
+
+      const newsList = []
+      const stockName = result.stock?.name || ''
+      try {
+        const eastmoneyUrl = `https://finance.eastmoney.com/`
+        const headers = {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          Referer: `https://quote.eastmoney.com/${market}${code}.html`,
+        }
+        const res = await fetch(eastmoneyUrl, { headers })
+        const html = await res.text()
+
+        const listMatches = html.match(/<ul\s+class="list list_common dot"[^>]*>([\s\S]*?)<\/ul>/gi)
+        if (listMatches) {
+          const linkRegex = /<li>\s*<a\s+href="([^"]+)"[^>]*>([^<]+)<\/a>\s*<\/li>/gi
+          let newsCount = 0
+
+          for (const listContent of listMatches) {
+            let match
+            linkRegex.lastIndex = 0
+
+            while ((match = linkRegex.exec(listContent)) !== null && newsCount < count) {
+              const url = match[1]
+              const title = match[2].trim()
+              if (url.startsWith('https://finance.eastmoney.com/a/') && title) {
+                const idMatch = url.match(/(\d+)\.html$/)
+                newsList.push({
+                  id: idMatch ? idMatch[1] : `em_${newsCount}`,
+                  title,
+                  summary: '',
+                  source: '东方财富',
+                  publishTime: '',
+                  url,
+                })
+                newsCount++
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error(`获取股票${code}东方财富新闻失败:`, e)
+      }
+      try {
+        const newsApi = `https://suggest3.sinajs.cn/suggest/key=${encodeURIComponent(stockName + ' 股票')}&name=suggest_news`
+        const newsRes = await fetch(newsApi, {
+          headers: { Referer: 'https://finance.sina.com.cn' },
+        })
+        const newsText = await decodeGBK(newsRes)
+        const newsMatch = newsText.match(/"([^"]+)"/)
+
+        if (newsMatch) {
+          const newsData = newsMatch[1]
+            .split(';')
+            .filter((item) => item)
+            .slice(0, count)
+          newsList.push(
+            ...newsData
+              .map((item, index) => {
+                const arr = item.split(',')
+                return {
+                  id: `news_${code}_${index}`,
+                  title: arr[1] || '',
+                  summary: arr[2] || '',
+                  source: arr[4] || '新浪财经',
+                  publishTime: arr[5] || new Date().toISOString(),
+                  url: arr[0] || '',
+                }
+              })
+              .filter((item) => item.title),
+          )
+        }
+      } catch (e) {
+        console.error(`获取股票${code}新浪新闻失败:`, e)
+      }
+
+      result.news = newsList.slice(0, count).sort((a, b) => new Date(b.publishTime) - new Date(a.publishTime))
+      return result
+    }
+
     // OPTIONS预检请求处理
     if (method === 'OPTIONS') return json({ code: 200 })
 
@@ -736,6 +877,61 @@ export default {
           })
         } catch (e) {
           return json(null, 500, `查询节假日失败: ${e.message}`)
+        }
+      }
+
+      // ==============================================
+      // 13. 获取财经资讯接口 匹配接口: GET /news/list?category=xxx&page=xxx&count=xxx&code=xxx
+      // ==============================================
+      if (path === '/news/list' && method === 'GET') {
+        try {
+          const category = url.searchParams.get('category') || 'economy'
+          const page = Math.max(1, parseInt(url.searchParams.get('page') || '1'))
+          const count = Math.min(50, Math.max(1, parseInt(url.searchParams.get('count') || '20')))
+          const code = url.searchParams.get('code') || ''
+
+          const categoryMap = {
+            stock: 2509,
+            fund: 2510,
+            bond: 2511,
+            forex: 2512,
+            futures: 2513,
+            global: 2514,
+            economy: 2515,
+            company: 2516,
+          }
+
+          if (!categoryMap[category]) {
+            return json(null, 400, `无效的分类参数，支持: ${Object.keys(categoryMap).join(', ')}`)
+          }
+
+          const lid = categoryMap[category]
+          let newsList = []
+          if (code && /^\d{6}$/.test(code)) {
+            const stockData = await fetchStockNewsByCode(code, count)
+            return json({
+              stock: stockData.stock || null,
+              list: stockData.news || [],
+              source: 'eastmoney',
+              category,
+              page,
+              count,
+              total: (stockData.news || []).length,
+            })
+          } else {
+            newsList = await fetchNewsByCategory(lid, page, count)
+            return json({
+              list: newsList,
+              source: 'sina',
+              category,
+              page,
+              count,
+              total: newsList.length,
+            })
+          }
+        } catch (e) {
+          console.error('获取财经资讯异常:', e)
+          return json(null, 500, `获取财经资讯失败: ${e.message}`)
         }
       }
 

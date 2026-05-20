@@ -137,3 +137,47 @@ export const getHoliday = (date: string) => {
     params: { date },
   })
 }
+
+export interface NewsItem {
+  id: string
+  title: string
+  summary: string
+  source: string
+  publishTime: string
+  url: string
+}
+
+export interface NewsData {
+  list: NewsItem[]
+  source: string
+  category: string
+  page: number
+  count: number
+  total: number
+}
+
+export interface StockNewsData {
+  stock: StockQuote | null
+  news: NewsItem[]
+  source: string
+  category: string
+  page: number
+  count: number
+  total: number
+}
+
+// 获取财经资讯列表
+export const getNewsList = (category: string = 'stock', page: number = 1, count: number = 20) => {
+  return request<any, NewsData>('/news/list', {
+    method: 'GET',
+    params: { category, page, count },
+  })
+}
+
+// 获取个股新闻
+export const getStockNews = (code: string, count: number = 10) => {
+  return request<any, StockNewsData>('/news/list', {
+    method: 'GET',
+    params: { code, count },
+  })
+}

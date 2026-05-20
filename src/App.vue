@@ -5,6 +5,7 @@
     <a-layout :style="{
       '--primary-bg': themeToken.colorPrimaryBg,
       '--success-bg': themeToken.colorSuccessBg,
+      '--color-text': themeToken.colorText,
       '--error-bg': themeToken.colorErrorBg,
       '--hover-bg': themeToken.colorBgLayout,
       '--color-bg': themeToken.colorBgContainer,
