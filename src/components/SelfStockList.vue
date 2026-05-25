@@ -35,11 +35,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, nextTick } from 'vue'
 import { getSelfStocks, type StockQuote, operateSelfStock } from '@/api/stock'
 import { useStockStore } from '@/store/stock'
 import Search from './Search.vue'
 import { message } from 'ant-design-vue'
+import { useRouter } from 'vue-router'
+import { useTradingTime } from '@/hooks/useTradingTime'
+const { getPollInterval } = useTradingTime()
+const router = useRouter()
 defineProps({
   maxHeight: {
     type: String,
@@ -66,11 +70,14 @@ const handleAddStock = async () => {
 }
 const handleSelectStock = (code: string) => {
   stockStore.setCurrentStockCode(code)
-  document.querySelector('.stock-detail')?.scrollIntoView({ behavior: 'smooth' })
+  router.push({ name: 'Home', query: { code } })
+  nextTick(() => {
+    document.querySelector('.stock-detail')?.scrollIntoView({ behavior: 'smooth' })
+  })
 }
 
 onMounted(() => {
   fetchData()
-  setInterval(fetchData, 3000)
+  setInterval(fetchData, getPollInterval.value)
 })
 </script>

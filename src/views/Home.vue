@@ -6,7 +6,7 @@
         <div class="col-span-1 md:col-span-3">
           <StockDetail />
         </div>
-        <div class="col-span-1 md:col-span-2 lg:col-span-1">
+        <div class="hidden md:block md:col-span-2 lg:col-span-1">
           <SelfStockList />
         </div>
       </div>

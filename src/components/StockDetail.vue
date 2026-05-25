@@ -118,7 +118,9 @@ import { useUserStore } from '@/store/user'
 import axios from '@/utils/request'
 import { message } from 'ant-design-vue'
 import { useTheme } from '@/hooks/useTheme'
+import { useTradingTime } from '@/hooks/useTradingTime'
 const { themeToken } = useTheme()
+const { isTradingTime, getPollInterval } = useTradingTime()
 
 use([CanvasRenderer, CandlestickChart, LineChart, BarChart, AxisBreak, TitleComponent, VisualMapComponent, TooltipComponent, GridComponent, LegendComponent, DataZoomComponent])
 
@@ -137,7 +139,6 @@ const tradeForm = ref({
 })
 const pollTimer = ref<number | null>(null)
 const isPooTime = computed(() => period.value === 'time')
-const isHolidayToday = ref(false)
 // 格式化成交量：自动转万/亿单位，取绝对值
 const formatVolume = (vol: number) => {
   const absVol = Math.abs(vol || 0)
@@ -149,49 +150,13 @@ const formatVolume = (vol: number) => {
   return absVol.toString()
 }
 
-const checkHoliday = async (date?: string) => {
-  try {
-    const response = await getHoliday(date || new Date().toISOString().split('T')[0])
-    if (response) {
-      isHolidayToday.value = response.isHoliday
-    }
-  } catch (e) {
-    console.log('获取节假日信息失败:', e)
-    isHolidayToday.value = false
-  }
-}
-
-const isTradingTime = () => {
-  if (isHolidayToday.value) {
-    return false
-  }
-  const now = new Date()
-  const dayOfWeek = now.getDay()
-  if (dayOfWeek === 0 || dayOfWeek === 6) {
-    return false
-  }
-  const hours = now.getHours()
-  const minutes = now.getMinutes()
-  const totalMinutes = hours * 60 + minutes
-  const morningStart = 9 * 60 + 30
-  const morningEnd = 11 * 60 + 30
-  const afternoonStart = 13 * 60
-  const afternoonEnd = 15 * 60
-  return (totalMinutes >= morningStart && totalMinutes <= morningEnd) || (totalMinutes >= afternoonStart && totalMinutes <= afternoonEnd)
-}
-
-const getPollInterval = () => {
-  return isTradingTime() ? 5000 : 600000
-}
-
 const startPolling = () => {
   if (pollTimer.value) {
     clearInterval(pollTimer.value)
   }
   pollTimer.value = window.setInterval(async () => {
-    await checkHoliday()
     fetchData()
-  }, getPollInterval())
+  }, getPollInterval.value)
 }
 
 const isSelfStock = computed(() => {
@@ -313,8 +278,8 @@ const fetchData = async () => {
   klineData.value = kline as unknown as KlineItem[]
   const dataMap: Record<string, KlineItem[]> = {
     time: kline as unknown as KlineItem[],
-    day: (kline as unknown as KlineItem[]).slice(0, 300),
-    week: (kline as unknown as KlineItem[]).slice(0, 300),
+    day: (kline as unknown as KlineItem[]).slice(-500),
+    week: (kline as unknown as KlineItem[]).slice(-300),
     month: kline as unknown as KlineItem[],
   }
   if (isPooTime.value) {
@@ -607,8 +572,7 @@ watch(currentCode, () => {
   fetchData()
 })
 
-onMounted(async () => {
-  await checkHoliday()
+onMounted(() => {
   fetchData()
   if (period.value === 'time') {
     startPolling()

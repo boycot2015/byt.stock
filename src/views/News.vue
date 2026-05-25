@@ -5,17 +5,12 @@
         <div class="news-header p-4 shadow-sm mb-4 bg-[var(--color-bg)]">
           <h2 class="text-xl font-medium mb-4">财经资讯</h2>
           <div class="category-tabs flex flex-wrap gap-2">
-            <button
-              v-for="item in categories"
-              :key="item.value"
-              @click="currentCategory = item.value"
-              :class="[
-                'px-4 py-2 rounded-full text-sm transition-colors',
-                currentCategory === item.value
-                  ? 'bg-[var(--color-primary)] !text-[var(--hover-bg)]'
-                  : 'hover:bg-[var(--hover-bg)]',
-              ]"
-            >
+            <button v-for="item in categories" :key="item.value" @click="currentCategory = item.value" :class="[
+              'px-4 py-2 rounded-full text-sm transition-colors cursor-pointer',
+              currentCategory === item.value
+                ? 'bg-[var(--color-primary)] !text-[var(--hover-bg)]'
+                : 'hover:bg-[var(--hover-bg)]',
+            ]">
               {{ item.label }}
             </button>
           </div>
@@ -24,12 +19,9 @@
         <div class="news-content grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div class="lg:col-span-2">
             <div class="news-list p-4 shadow-sm bg-[var(--color-bg)]">
-              <div
-                v-for="news in newsList"
-                :key="news.id"
+              <div v-for="news in newsList" :key="news.id"
                 class="news-item p-4 border-b border-[var(--border-color)] last:border-b-0 hover:bg-[var(--hover-bg)] cursor-pointer transition-colors"
-                @click="openNews(news)"
-              >
+                @click="openNews(news)">
                 <div class="flex gap-4">
                   <div class="flex-1">
                     <h3 class="text-lg font-medium mb-2 line-clamp-2">{{ news.title }}</h3>
@@ -54,12 +46,7 @@
             </div>
 
             <div v-if="!loading && newsList.length > 0" class="pagination mt-4 flex justify-center">
-              <a-pagination
-                :current="currentPage"
-                :page-size="pageSize"
-                :total="total"
-                @change="handlePageChange"
-              />
+              <a-pagination :current="currentPage" :page-size="pageSize" :total="total" @change="handlePageChange" />
             </div>
           </div>
 
@@ -67,12 +54,7 @@
             <div class="stock-news p-4 shadow-sm bg-[var(--color-bg)]">
               <h3 class="text-lg font-medium mb-4">个股动态</h3>
               <div class="search-stock mb-4">
-                <a-input
-                  v-model:value="stockCode"
-                  placeholder="输入股票代码"
-                  class="w-full"
-                  @pressEnter="fetchStockNews"
-                />
+                <a-input v-model:value="stockCode" placeholder="输入股票代码" class="w-full" @pressEnter="fetchStockNews" />
                 <a-button type="primary" block @click="fetchStockNews" class="!mt-2">
                   查询
                 </a-button>
@@ -83,18 +65,14 @@
                   <span class="font-medium">{{ stockNewsData.stock?.name }}</span>
                   <span class="text-sm text-gray-500">{{ stockNewsData.stock?.code }}</span>
                 </div>
-                <div class="flex items-center gap-4">
-                  <span
-                    :class="[
-                      'text-xl font-medium',
-                      stockNewsData.stock?.change >= 0 ? 'text-red-500' : 'text-green-500',
-                    ]"
-                  >
+                <div class="flex items-center gap-4" v-if="stockNewsData.stock">
+                  <span :class="[
+                    'text-xl font-medium',
+                    stockNewsData.stock?.change >= 0 ? 'text-red-500' : 'text-green-500',
+                  ]">
                     {{ stockNewsData.stock?.price.toFixed(2) }}
                   </span>
-                  <span
-                    :class="stockNewsData.stock?.change >= 0 ? 'text-red-500' : 'text-green-500'"
-                  >
+                  <span :class="stockNewsData.stock?.change >= 0 ? 'text-red-500' : 'text-green-500'">
                     {{ stockNewsData.stock?.change >= 0 ? '+' : '' }}
                     {{ stockNewsData.stock?.changePercent.toFixed(2) }}%
                   </span>
@@ -102,12 +80,9 @@
               </div>
 
               <div class="stock-news-list">
-                <div
-                  v-for="news in stockNewsList"
-                  :key="news.id"
+                <div v-for="news in stockNewsList" :key="news.id"
                   class="p-3 border-b border-[var(--border-color)] last:border-b-0 hover:bg-[var(--hover-bg)] cursor-pointer transition-colors"
-                  @click="openNews(news)"
-                >
+                  @click="openNews(news)">
                   <h4 class="text-sm font-medium line-clamp-2 mb-1">{{ news.title }}</h4>
                   <span class="text-xs text-gray-400">{{ news.source }}</span>
                 </div>
@@ -178,6 +153,7 @@ const fetchStockNews = async () => {
 
 const handlePageChange = (page: number) => {
   currentPage.value = page
+  window.scrollTo(0, 0)
   fetchNews()
 }
 
@@ -210,7 +186,7 @@ onMounted(() => {
 <style scoped>
 .line-clamp-2 {
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  /* -webkit-line-clamp: 2; */
   -webkit-box-orient: vertical;
   overflow: hidden;
 }

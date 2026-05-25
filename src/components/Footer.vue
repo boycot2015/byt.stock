@@ -1,7 +1,8 @@
 <template>
   <!-- 底部导航 -->
   <div>
-    <div class="footer md:hidden bg-white w-full shadow-inner border-t border-gray-200 py-3 px-6 fixed bottom-0 left-0 right-0">
+    <div
+      class="footer md:hidden bg-[var(--color-bg)] w-full shadow-inner border-t border-[var(--border-color)] py-3 px-6 fixed bottom-0 left-0 right-0">
       <!-- 直接复用NavBar组件，传入mobile模式 -->
       <NavBar mode="mobile" @logout="handleLogout" />
     </div>

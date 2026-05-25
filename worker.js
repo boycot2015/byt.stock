@@ -460,7 +460,7 @@ export default {
           list = list.filter((item) => item.code === keyword.trim()).concat(list.filter((item) => item.code !== keyword.trim()))
         }
         // 最多返回10条结果，过滤名称为空的异常数据
-        list = list.filter((item) => item.name).slice(0, 10)
+        list = list.filter((item) => item.name && item.code && (item.code.length === 6 || item.code.startsWith('sh') || item.code.startsWith('sz'))).slice(0, 10)
         return json(list)
       }
 

@@ -158,10 +158,11 @@ export interface NewsData {
 
 export interface StockNewsData {
   stock: StockQuote | null
-  news: NewsItem[]
+  list: NewsItem[]
   source: string
   category: string
   page: number
+  change: number
   count: number
   total: number
 }
