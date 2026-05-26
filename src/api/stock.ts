@@ -124,10 +124,16 @@ export const getMarketRank = (type: string, count = 20) => {
 }
 
 // 操作自选股
-export const operateSelfStock = (code: string, action: 'add' | 'delete') => {
+export const operateSelfStock = (codeOrCodes: string | string[], action: 'add' | 'delete' | 'order') => {
+  const data: Record<string, any> = { action }
+  if (Array.isArray(codeOrCodes)) {
+    data.codes = codeOrCodes
+  } else {
+    data.code = codeOrCodes
+  }
   return request<any, { success: boolean }>('/user/self-stock', {
     method: 'POST',
-    data: { code, action },
+    data,
   })
 }
 // 获取节假日信息

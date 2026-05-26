@@ -46,6 +46,8 @@ import { getMarketRank, type RankItem, operateSelfStock } from '@/api/stock'
 import { useStockStore } from '@/store/stock'
 import { message } from 'ant-design-vue'
 import request from '@/utils/request'
+import { useScroll } from '@/hooks/useScroll'
+const { scrollToElement } = useScroll()
 
 const tabs = [
   { label: '热门榜', value: 'amount' },
@@ -106,7 +108,7 @@ const changeTab = (tab: string) => {
 }
 const handleClick = (item: RankItem) => {
   useStockStore().setCurrentStockCode(item.code)
-  document.querySelector('.stock-detail')?.scrollIntoView({ behavior: 'smooth' })
+  scrollToElement('.stock-detail')
 }
 onMounted(() => {
   fetchData()

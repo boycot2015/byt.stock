@@ -10,14 +10,21 @@
           <SelfStockList />
         </div>
       </div>
+      <StockNews :default-code="currentStockCode" class="mb-4" />
       <MarketRank />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import MarketIndex from '@/components/MarketIndex.vue'
 import SelfStockList from '@/components/SelfStockList.vue'
 import StockDetail from '@/components/StockDetail.vue'
 import MarketRank from '@/components/MarketRank.vue'
+import StockNews from '@/components/StockNews.vue'
+import { useStockStore } from '@/store/stock'
+
+const stockStore = useStockStore()
+const currentStockCode = computed(() => stockStore.currentStockCode)
 </script>

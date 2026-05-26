@@ -17,17 +17,15 @@ import NavBar from './NavBar.vue'
 import ThemeSwitch from './ThemeSwitch.vue'
 import { useStockStore } from '@/store/stock'
 import { useUserStore } from '@/store/user'
-import { nextTick } from 'vue'
+import { useScroll } from '@/hooks/useScroll'
+const { scrollToElement } = useScroll()
 const userStore = useUserStore()
 const stockStore = useStockStore()
 
 const handleSelectStock = (code: string) => {
-  stockStore.setCurrentStockCode(code) // 直接修改store状态，兼容没有set方法的情况
+  stockStore.setCurrentStockCode(code)
   router.push({ name: 'Home', params: { code } })
-  nextTick(() => {
-    const detailEl = document.querySelector('.stock-detail') as HTMLElement | null
-    detailEl?.scrollIntoView({ behavior: 'smooth' })
-  })
+  scrollToElement('.stock-detail')
 }
 
 const logout = () => {

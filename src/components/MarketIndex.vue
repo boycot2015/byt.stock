@@ -29,7 +29,9 @@ import { ref, onMounted } from 'vue'
 import { getMarketIndex, type MarketIndex as MarketIndexType } from '@/api/stock'
 import { useStockStore } from '@/store/stock'
 import { useTradingTime } from '@/hooks/useTradingTime'
+import { useScroll } from '@/hooks/useScroll'
 const { getPollInterval } = useTradingTime()
+const { scrollToElement } = useScroll()
 const stockStore = useStockStore()
 const indexList = ref<MarketIndexType[]>([])
 
@@ -38,7 +40,7 @@ const fetchData = async () => {
 }
 const handleClick = (item: MarketIndexType) => {
   stockStore.setCurrentStockCode(item.code.slice(-6))
-  document.querySelector('.stock-detail')?.scrollIntoView({ behavior: 'smooth' })
+  scrollToElement('.stock-detail')
 }
 onMounted(() => {
   fetchData()

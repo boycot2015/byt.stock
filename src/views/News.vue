@@ -1,18 +1,20 @@
 <template>
-  <div class="app min-h-screen">
+  <div class="min-h-screen">
     <div class="max-w-full md:max-w-6xl lg:max-w-[1280px] mx-auto p-4">
       <div class="news-page">
         <div class="news-header p-4 shadow-sm mb-4 bg-[var(--color-bg)]">
           <h2 class="text-xl font-medium mb-4">财经资讯</h2>
-          <div class="category-tabs flex flex-wrap gap-2">
-            <button v-for="item in categories" :key="item.value" @click="currentCategory = item.value" :class="[
-              'px-4 py-2 rounded-full text-sm transition-colors cursor-pointer',
-              currentCategory === item.value
-                ? 'bg-[var(--color-primary)] !text-[var(--hover-bg)]'
-                : 'hover:bg-[var(--hover-bg)]',
-            ]">
-              {{ item.label }}
-            </button>
+          <div class="category-tabs-wrapper overflow-x-auto scrollbar-hide">
+            <div class="category-tabs flex gap-2 min-w-max">
+              <button v-for="item in categories" :key="item.value" @click="currentCategory = item.value" :class="[
+                'px-4 py-2 rounded-full text-sm transition-colors cursor-pointer whitespace-nowrap',
+                currentCategory === item.value
+                  ? 'bg-[var(--color-primary)] !text-[var(--hover-bg)]'
+                  : 'hover:bg-[var(--hover-bg)]',
+              ]">
+                {{ item.label }}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -51,46 +53,7 @@
           </div>
 
           <div class="lg:col-span-1">
-            <div class="stock-news p-4 shadow-sm bg-[var(--color-bg)]">
-              <h3 class="text-lg font-medium mb-4">个股动态</h3>
-              <div class="search-stock mb-4">
-                <a-input v-model:value="stockCode" placeholder="输入股票代码" class="w-full" @pressEnter="fetchStockNews" />
-                <a-button type="primary" block @click="fetchStockNews" class="!mt-2">
-                  查询
-                </a-button>
-              </div>
-
-              <div v-if="stockNewsData" class="stock-info mb-4 p-3 bg-[var(--hover-bg)] rounded">
-                <div class="flex justify-between items-center mb-2">
-                  <span class="font-medium">{{ stockNewsData.stock?.name }}</span>
-                  <span class="text-sm text-gray-500">{{ stockNewsData.stock?.code }}</span>
-                </div>
-                <div class="flex items-center gap-4" v-if="stockNewsData.stock">
-                  <span :class="[
-                    'text-xl font-medium',
-                    stockNewsData.stock?.change >= 0 ? 'text-red-500' : 'text-green-500',
-                  ]">
-                    {{ stockNewsData.stock?.price.toFixed(2) }}
-                  </span>
-                  <span :class="stockNewsData.stock?.change >= 0 ? 'text-red-500' : 'text-green-500'">
-                    {{ stockNewsData.stock?.change >= 0 ? '+' : '' }}
-                    {{ stockNewsData.stock?.changePercent.toFixed(2) }}%
-                  </span>
-                </div>
-              </div>
-
-              <div class="stock-news-list">
-                <div v-for="news in stockNewsList" :key="news.id"
-                  class="p-3 border-b border-[var(--border-color)] last:border-b-0 hover:bg-[var(--hover-bg)] cursor-pointer transition-colors"
-                  @click="openNews(news)">
-                  <h4 class="text-sm font-medium line-clamp-2 mb-1">{{ news.title }}</h4>
-                  <span class="text-xs text-gray-400">{{ news.source }}</span>
-                </div>
-                <div v-if="stockNewsList.length === 0" class="text-center py-4 text-gray-500 text-sm">
-                  请输入股票代码查询
-                </div>
-              </div>
-            </div>
+            <StockNews />
           </div>
         </div>
       </div>
@@ -99,9 +62,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
-import { getNewsList, getStockNews, type NewsItem, type StockNewsData } from '@/api/stock'
+import { ref, onMounted, watch } from 'vue'
+import { getNewsList, type NewsItem } from '@/api/stock'
 import { message } from 'ant-design-vue'
+import StockNews from '@/components/StockNews.vue'
 
 const categories = [
   { label: '股票', value: 'stock' },
@@ -121,10 +85,8 @@ const total = ref(0)
 const loading = ref(false)
 const newsList = ref<NewsItem[]>([])
 
-const stockCode = ref('399006')
-const stockNewsData = ref<StockNewsData | null>(null)
-const stockNewsList = computed(() => stockNewsData.value?.list || [])
 watch(currentCategory, () => fetchNews())
+
 const fetchNews = async () => {
   loading.value = true
   try {
@@ -135,19 +97,6 @@ const fetchNews = async () => {
     message.error('获取新闻失败')
   } finally {
     loading.value = false
-  }
-}
-
-const fetchStockNews = async () => {
-  if (!stockCode.value || !/^\d{6}$/.test(stockCode.value)) {
-    message.error('请输入有效的6位股票代码')
-    return
-  }
-  try {
-    const data = await getStockNews(stockCode.value, 10)
-    stockNewsData.value = data
-  } catch (error) {
-    message.error('获取个股新闻失败')
   }
 }
 
@@ -179,7 +128,6 @@ const openNews = (news: NewsItem) => {
 
 onMounted(() => {
   fetchNews()
-  fetchStockNews()
 })
 </script>
 
@@ -189,5 +137,22 @@ onMounted(() => {
   /* -webkit-line-clamp: 2; */
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.category-tabs-wrapper {
+  scroll-snap-type: x mandatory;
+}
+
+.category-tabs-wrapper::-webkit-scrollbar {
+  display: none;
 }
 </style>

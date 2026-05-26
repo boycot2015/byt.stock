@@ -301,7 +301,6 @@ export default {
         if (listMatches) {
           const linkRegex = /<li>\s*<a\s+href="([^"]+)"[^>]*>([^<]+)<\/a>\s*<\/li>/gi
           let newsCount = 0
-
           for (const listContent of listMatches) {
             let match
             linkRegex.lastIndex = 0
@@ -311,12 +310,12 @@ export default {
               const title = match[2].trim()
               if (url.startsWith('https://finance.eastmoney.com/a/') && title) {
                 const idMatch = url.match(/(\d+)\.html$/)
-                newsList.push({
+                newsList.unshift({
                   id: idMatch ? idMatch[1] : `em_${newsCount}`,
                   title,
                   summary: '',
                   source: '东方财富',
-                  publishTime: '',
+                  publishTime: new Date().toISOString().substring(0, 19).split('T')[0],
                   url,
                 })
                 newsCount++
@@ -705,31 +704,58 @@ export default {
 
       // ==============================================
       // 9. 操作自选股 匹配接口: POST /user/self-stock
+      // 支持操作: add(添加), delete(删除), order(排序)
       // ==============================================
       if (path === '/user/self-stock' && method === 'POST') {
         try {
           const body = await request.json()
-          const { code, action } = body
+          const { code, codes, action } = body
 
-          if (!/^\d{6}$/.test(code)) return json(null, 400, '请输入有效的6位股票代码')
-          if (!['add', 'delete'].includes(action)) return json(null, 400, 'action只能是add或delete')
-
-          // 支持Token和X-User-Id两种用户识别方式
-          const userId = await getUserIdFromRequest(request, env)
-          // 读取现有自选股列表
-          let stockCodes = (await env.STOCK_KV.get(`user:${userId}:stocks`, { type: 'json' })) || []
-
-          if (action === 'add') {
-            // 去重添加
-            if (!stockCodes.includes(code)) {
-              stockCodes.push(code)
-            }
-          } else if (action === 'delete') {
-            // 删除指定股票
-            stockCodes = stockCodes.filter((item) => item !== code)
+          if (!action || !['add', 'delete', 'order'].includes(action)) {
+            return json(null, 400, 'action只能是add、delete或order')
           }
 
-          // 保存到KV
+          const userId = await getUserIdFromRequest(request, env)
+          let stockCodes = (await env.STOCK_KV.get(`user:${userId}:stocks`, { type: 'json' })) || []
+
+          if (action === 'order') {
+            if (!Array.isArray(codes)) return json(null, 400, '批量排序时codes必须是数组')
+            if (codes.length > 0 && !codes.every((c) => /^\d{6}$/.test(c))) {
+              return json(null, 400, '股票代码必须是6位数字')
+            }
+            stockCodes = codes
+          } else if (action === 'add') {
+            if (code) {
+              if (!/^\d{6}$/.test(code)) return json(null, 400, '请输入有效的6位股票代码')
+              if (!stockCodes.includes(code)) {
+                stockCodes.push(code)
+              }
+            } else if (Array.isArray(codes)) {
+              if (codes.length > 0 && !codes.every((c) => /^\d{6}$/.test(c))) {
+                return json(null, 400, '股票代码必须是6位数字')
+              }
+              codes.forEach((c) => {
+                if (!stockCodes.includes(c)) {
+                  stockCodes.push(c)
+                }
+              })
+            } else {
+              return json(null, 400, '添加操作需要提供code或codes参数')
+            }
+          } else if (action === 'delete') {
+            if (code) {
+              if (!/^\d{6}$/.test(code)) return json(null, 400, '请输入有效的6位股票代码')
+              stockCodes = stockCodes.filter((item) => item !== code)
+            } else if (Array.isArray(codes)) {
+              if (codes.length > 0 && !codes.every((c) => /^\d{6}$/.test(c))) {
+                return json(null, 400, '股票代码必须是6位数字')
+              }
+              stockCodes = stockCodes.filter((item) => !codes.includes(item))
+            } else {
+              return json(null, 400, '删除操作需要提供code或codes参数')
+            }
+          }
+
           await env.STOCK_KV.put(`user:${userId}:stocks`, JSON.stringify(stockCodes))
 
           return json({ success: true })
