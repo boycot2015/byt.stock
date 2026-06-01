@@ -112,7 +112,7 @@ import { AxisBreak } from 'echarts/features.js'
 import { CandlestickChart, LineChart, BarChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, GridComponent, VisualMapComponent, LegendComponent, DataZoomComponent } from 'echarts/components'
 import type { EChartsOption } from 'echarts'
-import { getStockQuote, getStockDepth, operateSelfStock, type StockQuote, type DepthData, getStockKline, type KlineItem, getStockTimeKline, getHoliday } from '@/api/stock'
+import { getStockQuote, getStockDepth, operateSelfStock, type StockQuote, type DepthData, getStockKline, type KlineItem, getStockTimeKline } from '@/api/stock'
 import { useStockStore } from '@/store/stock'
 import { useUserStore } from '@/store/user'
 import axios from '@/utils/request'
@@ -120,7 +120,7 @@ import { message } from 'ant-design-vue'
 import { useTheme } from '@/hooks/useTheme'
 import { useTradingTime } from '@/hooks/useTradingTime'
 const { themeToken } = useTheme()
-const { isTradingTime, getPollInterval } = useTradingTime()
+const { getPollInterval } = useTradingTime()
 
 use([CanvasRenderer, CandlestickChart, LineChart, BarChart, AxisBreak, TitleComponent, VisualMapComponent, TooltipComponent, GridComponent, LegendComponent, DataZoomComponent])
 
