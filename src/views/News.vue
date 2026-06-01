@@ -3,7 +3,7 @@
     <div class="max-w-full md:max-w-6xl lg:max-w-[1280px] mx-auto p-4">
       <div class="news-page">
         <div class="news-header p-4 shadow-sm mb-4 bg-[var(--color-bg)]">
-          <h2 class="text-xl font-medium mb-4">财经资讯</h2>
+          <h2 class="text-xl font-medium !mb-4">财经资讯</h2>
           <div class="category-tabs-wrapper overflow-x-auto scrollbar-hide">
             <div class="category-tabs flex gap-2 min-w-max">
               <button v-for="item in categories" :key="item.value" @click="currentCategory = item.value" :class="[

@@ -1,6 +1,6 @@
 <template>
   <div class="market-index p-4 shadow-sm mb-4 bg-[var(--color-bg)]">
-    <h3 class="text-lg font-medium mb-3">大盘指数</h3>
+    <h3 class="text-lg font-medium !mb-3">大盘指数</h3>
     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
       <div v-for="item in indexList" :key="item.code"
         :class="item.change >= 0 ? 'bg-[var(--error-bg)]' : 'bg-[var(--success-bg)]'"

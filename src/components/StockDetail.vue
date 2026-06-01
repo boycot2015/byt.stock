@@ -116,11 +116,13 @@ import { getStockQuote, getStockDepth, operateSelfStock, type StockQuote, type D
 import { useStockStore } from '@/store/stock'
 import { useUserStore } from '@/store/user'
 import axios from '@/utils/request'
+import { formatVolume as formatVolumeUtil } from '@/utils/index'
 import { message } from 'ant-design-vue'
-import { useTheme } from '@/hooks/useTheme'
+import { useTheme, useDark } from '@/hooks/useTheme'
 import { useTradingTime } from '@/hooks/useTradingTime'
 const { themeToken } = useTheme()
 const { getPollInterval } = useTradingTime()
+const { isDark } = useDark()
 
 use([CanvasRenderer, CandlestickChart, LineChart, BarChart, AxisBreak, TitleComponent, VisualMapComponent, TooltipComponent, GridComponent, LegendComponent, DataZoomComponent])
 
@@ -139,15 +141,9 @@ const tradeForm = ref({
 })
 const pollTimer = ref<number | null>(null)
 const isPooTime = computed(() => period.value === 'time')
-// 格式化成交量：自动转万/亿单位，取绝对值
 const formatVolume = (vol: number) => {
   const absVol = Math.abs(vol || 0)
-  if (absVol >= 100000000) {
-    return (absVol / 100000000).toFixed(2) + '亿'
-  } else if (absVol >= 10000) {
-    return (absVol / 10000).toFixed(2) + '万'
-  }
-  return absVol.toString()
+  return formatVolumeUtil(absVol)
 }
 
 const startPolling = () => {
@@ -267,7 +263,7 @@ const timeKlineOption = reactive<EChartsOption>({})
 const fetchData = async () => {
   stockInfo.value = await getStockQuote(currentCode.value)
   depthData.value = await getStockDepth(currentCode.value)
-  console.log(depthData.value);
+  // console.log(depthData.value);
 
   let kline
   if (isPooTime.value) {
@@ -278,9 +274,9 @@ const fetchData = async () => {
   klineData.value = kline as unknown as KlineItem[]
   const dataMap: Record<string, KlineItem[]> = {
     time: kline as unknown as KlineItem[],
-    day: (kline as unknown as KlineItem[]).slice(-500),
+    day: (kline as unknown as KlineItem[]).slice(-800),
     week: (kline as unknown as KlineItem[]).slice(-300),
-    month: kline as unknown as KlineItem[],
+    month: (kline as unknown as KlineItem[]).slice(-100),
   }
   if (isPooTime.value) {
     updateTimeKlineChart(dataMap['time'])
@@ -303,6 +299,7 @@ const updateKlineChart = (data: KlineItem[]) => {
     ; (option.series as any)[0].type = 'candlestick'
     ; (option.series as any)[0].data = klineValues
     ; (option.series as any)[1].data = volumes
+    ; (option.dataZoom as any)[0].minSpan = period.value === 'day' ? 10 : period.value === 'week' ? 30 : 80
   // 移除分时相关的系列和配置
   if ((option.series as any).length > 2) {
     ; (option.series as any).splice(2, 2)
@@ -378,6 +375,20 @@ const updateTimeKlineChart = (data: any[]) => {
           margin: 10, // 标签与轴线的距离
           rotate: 0, // 可选：旋转角度，0 表示水平
         },
+        splitLine: {
+          show: true,
+          lineStyle: {
+            color: themeToken.value.colorBorder,
+            type: 'solid' // 设置为实线
+          }
+        },
+        axisLine: {
+          show: true,
+          lineStyle: {
+            color: themeToken.value.colorBorder,
+            type: 'dashed' // 设置为虚线
+          }
+        },
         axisTick: {
           show: false,
         },
@@ -396,7 +407,7 @@ const updateTimeKlineChart = (data: any[]) => {
           zigzagAmplitude: 0,
           zigzagZ: 200,
         },
-        splitLine: { show: false },
+        // splitLine: { show: false },
       },
       {
         type: 'time',
@@ -427,6 +438,12 @@ const updateTimeKlineChart = (data: any[]) => {
         show: false,
         min: minPercent,
         max: maxPercent,
+        splitLine: {
+          show: true,
+          lineStyle: {
+            type: 'solid' // 设置为虚线
+          }
+        },
         splitArea: {
           show: true,
         },
@@ -568,7 +585,7 @@ const handleTrade = async () => {
   }
 }
 
-watch(currentCode, () => {
+watch([currentCode, isDark], () => {
   fetchData()
 })
 

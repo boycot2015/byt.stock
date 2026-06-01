@@ -1,7 +1,7 @@
 <template>
   <div class="stock-news p-4 shadow-sm bg-[var(--color-bg)]">
     <template v-if="!defaultCode">
-      <h3 class="text-lg font-medium mb-4">个股动态</h3>
+      <h3 class="text-lg font-medium !mb-4">个股动态</h3>
       <div class="search-stock mb-4">
         <a-input v-model:value="stockCode" placeholder="输入股票代码" class="w-full" @pressEnter="fetchStockNews" />
         <a-button type="primary" block @click="fetchStockNews" class="!mt-2">

@@ -46,3 +46,13 @@ export function debounce<T extends (...args: any[]) => any>(
     cancel(): void
   }
 }
+
+export function formatVolume(volume: number): string {
+  if (volume < 10000) {
+    return volume.toString()
+  } else if (volume < 100000000) {
+    return (volume / 10000).toFixed(2) + '万'
+  } else {
+    return (volume / 100000000).toFixed(2) + '亿'
+  }
+}

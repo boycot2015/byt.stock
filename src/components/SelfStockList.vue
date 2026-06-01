@@ -1,6 +1,6 @@
 <template>
   <div class="self-stock-list shadow-sm mb-4 bg-[var(--color-bg)]">
-    <div class="flex justify-between items-center p-4">
+    <div class="flex justify-between items-center p-4 border-b border-[var(--border-color)]">
       <h3 class="text-lg font-medium">自选股</h3>
       <div class="flex items-center gap-2">
         <span class="text-sm text-[var(--color-primary)] cursor-pointer" @click="visible = true">+ 添加</span>
@@ -79,7 +79,7 @@
             <span class="font-medium mr-2">{{ item.name }}</span>
             <span class="text-sm text-gray-500">{{ item.code }}</span>
           </div>
-          <div class="text-sm text-gray-500 mt-1">成交量: {{ (item.volume / 10000).toFixed(2) }}万手</div>
+          <div class="text-sm text-gray-500 mt-1">成交量: {{ formatVolume(item.volume) }}手</div>
         </div>
 
         <div class="text-right">
@@ -134,6 +134,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { getSelfStocks, type StockQuote, operateSelfStock } from '@/api/stock'
+import { formatVolume } from '@/utils/index'
 import { useStockStore } from '@/store/stock'
 import Search from './Search.vue'
 import { message } from 'ant-design-vue'
