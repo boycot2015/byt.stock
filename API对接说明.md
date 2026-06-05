@@ -11,7 +11,10 @@ worker.js已100%匹配stock.ts中定义的所有接口，包括：
 | getStockTimeKline | GET /stock/time-kline | code | KlineItem[] | ✅ 完成 |
 | getStockDepth | GET /stock/depth | code | DepthData | ✅ 完成 |
 | getMarketRank | GET /market/rank | type, count | RankItem[] | ✅ 完成 |
-| operateSelfStock | POST /user/self-stock | code, action | 操作结果 | ✅ 完成 |
+| operateSelfStock | POST /user/self-stock | code/codes, action | { success: boolean } | ✅ 完成 |
+| getHoliday | GET /holiday | date | Holiday | ✅ 完成 |
+| getNewsList | GET /news/list | category, page, count | NewsData | ✅ 完成 |
+| getStockNews | GET /news/list | code, count | StockNewsData | ✅ 完成 |
 
 ## 🚀 前端对接步骤
 ### 1. 配置request基础地址
