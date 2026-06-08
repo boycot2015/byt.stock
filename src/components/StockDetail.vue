@@ -17,7 +17,7 @@
           当前可用资金：¥{{ userStore.userInfo?.balance?.toFixed(2) || '0.00' }}
         </div> -->
       </div>
-      <div class="flex space-x-2 justify-between">
+      <div class="flex gap-2 justify-between">
         <a-button type="primary" class="!flex !items-center" @click="handleAddSelf">
           <StarOutlined /> {{ isSelfStock ? '已自选' : '加自选' }}
         </a-button>
@@ -27,7 +27,7 @@
     </div>
     <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-2">
       <!-- K线图区域 -->
-      <div class="kline-section col-span-1 xl:col-span-2 rounded-lg h-95">
+      <div class="kline-section col-span-1 xl:col-span-2 rounded-lg h-100">
         <div class="w-full">
           <a-tabs v-model="period" @change="changePeriod">
             <a-tab-pane key="time" type="default" size="small" tab="分时"> </a-tab-pane>
@@ -41,7 +41,7 @@
       </div>
       <!-- 盘口数据 -->
       <div class="depth-section p-2 rounded-lg">
-        <h4 class="font-medium mb-3">买卖盘口</h4>
+        <h4 class="font-medium !mb-3">买卖盘口</h4>
         <div class="grid grid-cols-2 gap-4">
           <div>
             <h5 class="text-sm text-gray-500 mb-2">买盘</h5>
@@ -77,9 +77,8 @@
         </div>
       </div>
     </div>
-
     <!-- 交易模态框 -->
-    <a-modal v-model="tradeModalVisible" :title="tradeType === 'buy' ? '买入股票' : '卖出股票'" @ok="handleTrade"
+    <a-modal :open="tradeModalVisible" :title="tradeType === 'buy' ? '买入股票(模拟)' : '卖出股票(模拟)'" @ok="handleTrade"
       @cancel="tradeModalVisible = false">
       <a-form :model="tradeForm" layout="vertical">
         <a-form-item label="股票代码">
@@ -326,30 +325,113 @@ const updateTimeKlineChart = (data: any[]) => {
   const breakStart = new Date(new Date().setHours(11, 30, 0, 0)).getTime()
   const breakEnd = new Date(new Date().setHours(13, 0, 0, 0)).getTime()
 
+  const dataMap = new Map<number, { price: number; avgPrice: number; volume: number }>()
+  let lastDataTime = 0
+  data.forEach((item) => {
+    const time = generateTimeData(item.time)
+    dataMap.set(time, {
+      price: item.price,
+      avgPrice: item.avgPrice,
+      volume: item.volume
+    })
+    if (time > lastDataTime) {
+      lastDataTime = time
+    }
+  })
+
   const timeData: number[] = []
   const pricePercents: number[] = []
   const avgPercents: number[] = []
   const volumes: number[] = []
+  const timeToVolumeMap = new Map<number, number | null>()
 
-  data.forEach((item) => {
-    const time = generateTimeData(item.time)
-    // 过滤休市时间数据
-    if ((time >= new Date(new Date().setHours(9, 30, 0, 0)).getTime() && time <= breakStart) || (time >= breakEnd && time <= new Date(new Date().setHours(15, 0, 0, 0)).getTime())) {
-      timeData.push(time)
-      pricePercents.push(covertToPercent(item.price))
-      avgPercents.push(covertToPercent(item.avgPrice))
-      volumes.push(item.volume)
+  const session1Start = new Date(new Date().setHours(9, 30, 0, 0)).getTime()
+  const session1End = breakStart
+  const session2Start = breakEnd
+  const session2End = new Date(new Date().setHours(15, 0, 0, 0)).getTime()
+
+  let currentPrice = 0
+  let currentAvg = 0
+  let currentVolume = 0
+  let hasData = false
+
+  const generateMinuteData = (start: number, end: number) => {
+    let current = start
+    while (current <= end) {
+      const existingData = dataMap.get(current)
+      if (existingData) {
+        currentPrice = existingData.price
+        currentAvg = existingData.avgPrice
+        currentVolume = existingData.volume
+        hasData = true
+      }
+
+      timeData.push(current)
+
+      if (hasData && current <= lastDataTime) {
+        pricePercents.push(covertToPercent(currentPrice))
+        avgPercents.push(covertToPercent(currentAvg))
+        volumes.push(currentVolume)
+        timeToVolumeMap.set(current, currentVolume)
+      } else {
+        pricePercents.push(null as unknown as number)
+        avgPercents.push(null as unknown as number)
+        volumes.push(null as unknown as number)
+        timeToVolumeMap.set(current, null)
+      }
+
+      current += 60 * 1000
     }
-  })
+  }
 
-  // 计算Y轴范围
-  const allPercents = [...pricePercents, ...avgPercents]
-  const minPercent = Math.min(...allPercents)
-  const maxPercent = Math.max(...allPercents)
+  generateMinuteData(session1Start, session1End)
+  generateMinuteData(session2Start, session2End)
+
+  // const validPercents = [...pricePercents, ...avgPercents].filter((p): p is number => p !== null)
+  // const minPercent = validPercents.length > 0 ? Math.min(...validPercents) : -10
+  // const maxPercent = validPercents.length > 0 ? Math.max(...validPercents) : 10
+
+  const lastValidPricePercent = pricePercents.filter((p): p is number => p !== null).pop() || 0
   // console.log(minPercent, maxPercent, pricePercents)
   // 直接构造完整的分时K线配置
   const newTimeKlineOption = {
     ...option, // 保留基础配置
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: {
+        type: 'cross',
+      },
+      formatter: (params: any) => {
+        let result = ''
+        params.forEach((item: any) => {
+          const time = item.value[0]
+          const value = item.value[1]
+          let color = '#999'
+
+          if (item.seriesName === '成交量') {
+            const volumeValue = timeToVolumeMap.get(time)
+            if (volumeValue !== null && volumeValue !== undefined) {
+              color = volumeValue >= 0 ? '#ef232a' : '#14b936'
+            }
+          } else {
+            if (value > 0) {
+              color = '#ef232a'
+            } else if (value < 0) {
+              color = '#14b936'
+            }
+          }
+
+          result += `<span style="display:inline-block;margin-right:5px;border-radius:50%;width:10px;height:10px;background-color:${color};"></span>`
+          if (item.seriesName === '成交量') {
+            result += `${item.seriesName}: ${value !== null ? formatVolume(value) : '-'}`
+          } else {
+            result += `${item.seriesName}: ${value !== null ? value.toFixed(2) + '%' : '-'}`
+          }
+          result += '<br/>'
+        })
+        return result
+      },
+    },
     grid: [
       {
         top: '0%',
@@ -434,34 +516,60 @@ const updateTimeKlineChart = (data: any[]) => {
     yAxis: [
       {
         type: 'value',
-        scale: true,
+        scale: false,
         show: false,
-        min: minPercent,
-        max: maxPercent,
-        splitLine: {
+        min: function (value: { min: number; max: number }) {
+          const maxAbs = Math.max(Math.abs(value.min), Math.abs(value.max))
+          return -maxAbs
+        },
+        max: function (value: { min: number; max: number }) {
+          const maxAbs = Math.max(Math.abs(value.min), Math.abs(value.max))
+          return maxAbs
+        },
+        axisLabel: {
           show: true,
+          formatter: '{value}%',
+          fontSize: 10,
+          color: themeToken.value.colorTextSecondary,
+        },
+        axisLine: {
+          show: false,
           lineStyle: {
-            type: 'solid' // 设置为虚线
+            color: themeToken.value.colorBorder,
+          },
+        },
+        axisTick: {
+          show: false,
+          lineStyle: {
+            color: themeToken.value.colorBorder,
+          },
+        },
+        splitLine: {
+          show: false,
+          lineStyle: {
+            type: 'solid',
+            color: themeToken.value.colorBorder,
           }
         },
         splitArea: {
-          show: true,
+          show: false,
         },
-        // markLine: {
-        //   silent: true,
-        //   data: [{ y: 0 }],
-        //   lineStyle: {
-        //     color: '#999',
-        //     type: 'dashed',
-        //     width: 1
-        //   },
-        //   label: {
-        //     show: true,
-        //     position: 'end',
-        //     formatter: '昨收',
-        //     fontSize: 10
-        //   }
-        // }
+        markLine: {
+          silent: true,
+          data: [{ yAxis: lastValidPricePercent }],
+          lineStyle: {
+            color: '#999',
+            type: 'dashed',
+            width: 1,
+          },
+          label: {
+            show: true,
+            position: 'end',
+            formatter: (params: any) => `${params.value.toFixed(2)}%`,
+            fontSize: 10,
+            color: themeToken.value.colorTextSecondary,
+          },
+        },
       },
       {
         scale: true,
