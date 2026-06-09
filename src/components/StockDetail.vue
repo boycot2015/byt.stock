@@ -31,12 +31,16 @@
         <div class="w-full">
           <a-tabs v-model="period" @change="changePeriod">
             <a-tab-pane key="time" type="default" size="small" tab="分时"> </a-tab-pane>
+            <a-tab-pane key="fiveDay" type="default" size="small" tab="5日涨幅"> </a-tab-pane>
             <a-tab-pane key="day" type="default" size="small" tab="日K"> </a-tab-pane>
             <a-tab-pane key="week" type="default" size="small" tab="周K"> </a-tab-pane>
             <a-tab-pane key="month" type="default" size="small" tab="月K"> </a-tab-pane>
           </a-tabs>
         </div>
-        <v-chart v-if="period === 'time'" :option="timeKlineOption" class="kline-chart !h-80 rounded" autoresize />
+        <!-- <v-chart v-if="period === 'time'" :option="timeKlineOption" class="kline-chart !h-80 rounded" autoresize /> -->
+        <TimeChart v-if="period === 'time'" :data="klineData || []" :type="'time'" />
+        <v-chart v-else-if="period === 'fiveDay'" :option="fiveDayOption" class="kline-chart !h-80 rounded"
+          autoresize />
         <v-chart v-else :option="option" class="kline-chart !h-80 rounded" autoresize />
       </div>
       <!-- 盘口数据 -->
@@ -102,7 +106,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, watch, reactive, onUnmounted } from 'vue'
+import { ref, onMounted, computed, watch, reactive, onUnmounted, nextTick } from 'vue'
 import { StarOutlined } from '@ant-design/icons-vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
@@ -110,8 +114,9 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { AxisBreak } from 'echarts/features.js'
 import { CandlestickChart, LineChart, BarChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, GridComponent, VisualMapComponent, LegendComponent, DataZoomComponent } from 'echarts/components'
+import TimeChart from './TimeChart.vue'
 import type { EChartsOption } from 'echarts'
-import { getStockQuote, getStockDepth, operateSelfStock, type StockQuote, type DepthData, getStockKline, type KlineItem, getStockTimeKline } from '@/api/stock'
+import { getStockQuote, getStockDepth, operateSelfStock, type StockQuote, type DepthData, getStockKline, type KlineItem, getStockTimeKline, getStockFiveDayTimeKline } from '@/api/stock'
 import { useStockStore } from '@/store/stock'
 import { useUserStore } from '@/store/user'
 import axios from '@/utils/request'
@@ -119,10 +124,11 @@ import { formatVolume as formatVolumeUtil } from '@/utils/index'
 import { message } from 'ant-design-vue'
 import { useTheme, useDark } from '@/hooks/useTheme'
 import { useTradingTime } from '@/hooks/useTradingTime'
+import { useScroll } from '@/hooks/useScroll'
 const { themeToken } = useTheme()
 const { getPollInterval } = useTradingTime()
 const { isDark } = useDark()
-
+const { scrollToElement } = useScroll()
 use([CanvasRenderer, CandlestickChart, LineChart, BarChart, AxisBreak, TitleComponent, VisualMapComponent, TooltipComponent, GridComponent, LegendComponent, DataZoomComponent])
 
 const stockStore = useStockStore()
@@ -259,13 +265,16 @@ const option = reactive<EChartsOption>({
   ],
 })
 const timeKlineOption = reactive<EChartsOption>({})
+const fiveDayOption = reactive<EChartsOption>({})
 const fetchData = async () => {
   stockInfo.value = await getStockQuote(currentCode.value)
   depthData.value = await getStockDepth(currentCode.value)
   // console.log(depthData.value);
 
   let kline
-  if (isPooTime.value) {
+  if (period.value === 'fiveDay') {
+    kline = await getStockFiveDayTimeKline(currentCode.value)
+  } else if (isPooTime.value) {
     kline = await getStockTimeKline(currentCode.value)
   } else {
     kline = await getStockKline(currentCode.value, period.value)
@@ -273,15 +282,353 @@ const fetchData = async () => {
   klineData.value = kline as unknown as KlineItem[]
   const dataMap: Record<string, KlineItem[]> = {
     time: kline as unknown as KlineItem[],
+    fiveDay: kline as unknown as KlineItem[],
     day: (kline as unknown as KlineItem[]).slice(-800),
     week: (kline as unknown as KlineItem[]).slice(-300),
     month: (kline as unknown as KlineItem[]).slice(-100),
   }
-  if (isPooTime.value) {
+  if (period.value === 'fiveDay') {
+    updateFiveDayChart(dataMap['fiveDay'])
+  } else if (isPooTime.value) {
     updateTimeKlineChart(dataMap['time'])
   } else {
     updateKlineChart(dataMap[period.value])
   }
+}
+
+const updateFiveDayChart = (data: any[]) => {
+  if (!data || data.length < 1) return
+
+  const firstValidData = data.find(item => item.preClose || item.price || item.close)
+  const basePrice = firstValidData?.preClose || firstValidData?.price || firstValidData?.close || 0
+
+  if (basePrice === 0) return
+
+  const convertToPercent = (price: number) => {
+    return Number((((price - basePrice) / basePrice) * 100).toFixed(2))
+  }
+
+  const parseTime = (timeStr: string) => {
+    if (timeStr.includes(' ')) {
+      const [datePart, timePart] = timeStr.split(' ')
+      const date = new Date()
+
+      if (datePart.includes('-')) {
+        const parts = datePart.split('-').map(Number)
+        if (parts.length === 3) {
+          date.setFullYear(parts[0], parts[1] - 1, parts[2])
+        } else if (parts.length === 2) {
+          date.setMonth(parts[0] - 1, parts[1])
+        }
+      }
+
+      if (timePart) {
+        const [hour, minute] = timePart.split(':').map(Number)
+        date.setHours(hour, minute, 0, 0)
+      }
+
+      return date.getTime()
+    } else {
+      const [hour, minute] = timeStr.split(':').map(Number)
+      const date = new Date()
+      date.setHours(hour, minute, 0, 0)
+      return date.getTime()
+    }
+  }
+
+  const formatDateStr = (timestamp: number) => {
+    const date = new Date(timestamp)
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
+  const dates = [...new Set(data.map(item => {
+    const time = parseTime(item.time)
+    return formatDateStr(time)
+  }))].sort()
+
+  const dataMap = new Map<number, { price: number; avgPrice: number; volume: number; preClose: number }>()
+  let lastDataTime = 0
+
+  data.forEach((item) => {
+    const time = parseTime(item.time)
+    dataMap.set(time, {
+      price: item.price,
+      avgPrice: item.avgPrice || item.price,
+      volume: item.volume || 0,
+      preClose: item.preClose || basePrice
+    })
+    if (time > lastDataTime) {
+      lastDataTime = time
+    }
+  })
+
+  const timeData: number[] = []
+  const pricePercents: (number | null)[] = []
+  const volumes: (number | null)[] = []
+  const timeToVolumeMap = new Map<number, number | null>()
+
+  let currentPrice = 0
+  let currentVolume = 0
+  let hasData = false
+
+  const generateDayMinuteData = (dateStr: string) => {
+    const dateParts = dateStr.split('-').map(Number)
+    const year = dateParts[0] || new Date().getFullYear()
+    const month = dateParts[1] - 1
+    const day = dateParts[2]
+
+    const session1Start = new Date(year, month, day, 9, 30, 0, 0).getTime()
+    const session1End = new Date(year, month, day, 11, 30, 0, 0).getTime()
+    const session2Start = new Date(year, month, day, 13, 0, 0, 0).getTime()
+    const session2End = new Date(year, month, day, 15, 0, 0, 0).getTime()
+
+    return { session1Start, session1End, session2Start, session2End }
+  }
+
+  const generateMinuteData = (start: number, end: number) => {
+    let current = start
+    while (current <= end) {
+      const existingData = dataMap.get(current)
+      if (existingData) {
+        currentPrice = existingData.price
+        currentVolume = existingData.volume
+        hasData = true
+      }
+
+      timeData.push(current)
+
+      if (hasData && current <= lastDataTime) {
+        pricePercents.push(convertToPercent(currentPrice))
+        volumes.push(currentVolume)
+        timeToVolumeMap.set(current, currentVolume)
+      } else {
+        pricePercents.push(null as unknown as number)
+        volumes.push(null as unknown as number)
+        timeToVolumeMap.set(current, null)
+      }
+
+      current += 60 * 1000
+    }
+  }
+
+  // 检测断点：交易日之间（15:00到次日9:30）和午休时间（11:30到13:00）
+  const breaks: { start: number; end: number }[] = []
+
+  // 检测交易日之间的断点
+  for (let i = 1; i < dates.length; i++) {
+    const prevDateParts = dates[i - 1].split('-').map(Number)
+    const currDateParts = dates[i].split('-').map(Number)
+
+    const lastDayEnd = new Date(prevDateParts[0], prevDateParts[1] - 1, prevDateParts[2], 15, 0, 0, 0).getTime()
+    const currentDayStart = new Date(currDateParts[0], currDateParts[1] - 1, currDateParts[2], 9, 30, 0, 0).getTime()
+
+    breaks.push({
+      start: lastDayEnd,
+      end: currentDayStart,
+    })
+  }
+
+  // 检测每个交易日内的午休时间断点（11:30到13:00）
+  dates.forEach((dateStr) => {
+    const dateParts = dateStr.split('-').map(Number)
+    const breakStart = new Date(dateParts[0], dateParts[1] - 1, dateParts[2], 11, 30, 0, 0).getTime()
+    const breakEnd = new Date(dateParts[0], dateParts[1] - 1, dateParts[2], 13, 0, 0, 0).getTime()
+
+    breaks.push({
+      start: breakStart,
+      end: breakEnd,
+    })
+  })
+
+  dates.forEach((dateStr) => {
+    const { session1Start, session1End, session2Start, session2End } = generateDayMinuteData(dateStr)
+
+    generateMinuteData(session1Start, session1End)
+    generateMinuteData(session2Start, session2End)
+  })
+
+  // const validPercents = pricePercents.filter((p): p is number => p !== null)
+  // const lastValidPercent = validPercents.length > 0 ? validPercents[validPercents.length - 1] : 0
+  const mainColor = themeToken.value.colorPrimary
+
+  const newFiveDayOption: EChartsOption = {
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: {
+        type: 'cross',
+      },
+      // formatter: (params: any) => {
+      //   let result = ''
+      //   params.forEach((item: any) => {
+      //     const time = item.value?.[0] || item.name
+      //     const value = item.value?.[1] ?? item.value
+      //     let color = '#999'
+
+      //     if (item.seriesName === '成交量') {
+      //       const vol = timeToVolumeMap.get(time) || value
+      //       color = vol >= 0 ? '#ef232a' : '#14b936'
+      //       result += `<span style="display:inline-block;margin-right:5px;border-radius:50%;width:10px;height:10px;background-color:${color};"></span>`
+      //       result += `${item.seriesName}: ${value !== null && value !== undefined ? formatVolume(value) : '-'}`
+      //     } else {
+      //       color = (value !== null && value !== undefined && value >= 0) ? '#ef232a' : '#14b936'
+      //       result += `<span style="display:inline-block;margin-right:5px;border-radius:50%;width:10px;height:10px;background-color:${color};"></span>`
+      //       result += `${item.seriesName}: ${value !== null && value !== undefined ? value.toFixed(2) + '%' : '-'}`
+      //     }
+      //     result += '<br/>'
+      //   })
+      //   return result
+      // },
+    },
+    grid: [
+      {
+        top: '5%',
+        left: '5%',
+        right: '5%',
+        height: '55%',
+      },
+      {
+        left: '5%',
+        right: '5%',
+        top: '70%',
+        height: '25%',
+      },
+    ],
+    xAxis: [
+      {
+        type: 'time',
+        axisLabel: {
+          alignMaxLabel: 'center',
+          verticalAlign: 'middle',
+          hideOverlap: true,
+          align: 'center',
+          margin: 10,
+          formatter: (value: number) => {
+            const date = new Date(value)
+            const month = (date.getMonth() + 1).toString().padStart(2, '0')
+            const day = date.getDate().toString().padStart(2, '0')
+            const hour = date.getHours().toString().padStart(2, '0')
+            const minute = date.getMinutes().toString().padStart(2, '0')
+            return `${month}-${day} ${hour}:${minute}`
+          },
+        },
+        splitLine: {
+          show: true,
+          lineStyle: {
+            color: themeToken.value.colorBorder,
+            type: 'solid',
+          },
+        },
+        axisLine: {
+          show: true,
+          lineStyle: {
+            color: themeToken.value.colorBorder,
+          },
+        },
+        axisTick: {
+          show: false,
+        },
+        breaks: breaks.length > 0 ? breaks : undefined,
+        breakArea: {
+          show: false,
+          expandOnClick: false,
+          zigzagAmplitude: 0,
+          zigzagZ: 0,
+        },
+      },
+      {
+        type: 'time',
+        gridIndex: 1,
+        axisLabel: { show: false },
+        axisTick: { show: false },
+        splitLine: { show: false },
+        axisLine: { show: false },
+        breaks: breaks.length > 0 ? breaks : undefined,
+        breakArea: {
+          show: false,
+          expandOnClick: false,
+          zigzagAmplitude: 0,
+          zigzagZ: 0,
+        },
+      },
+    ],
+    yAxis: [
+      {
+        type: 'value',
+        scale: false,
+        axisLabel: {
+          show: true,
+          formatter: '{value}%',
+          fontSize: 10,
+          color: themeToken.value.colorTextSecondary,
+        },
+        axisLine: {
+          show: false,
+        },
+        axisTick: {
+          show: false,
+        },
+        splitLine: {
+          show: true,
+          lineStyle: {
+            color: themeToken.value.colorBorder,
+          },
+        },
+      },
+      {
+        scale: true,
+        gridIndex: 1,
+        splitNumber: 2,
+        axisLabel: { show: false },
+        axisLine: { show: false },
+        axisTick: { show: false },
+        splitLine: { show: false },
+      },
+    ],
+    series: [
+      {
+        name: '5日涨跌幅',
+        type: 'line',
+        data: timeData.map((time, index) => [time, pricePercents[index]]),
+        lineStyle: {
+          width: 1.5,
+          color: mainColor,
+        },
+        itemStyle: {
+          color: mainColor,
+        },
+        symbol: 'none',
+        smooth: false,
+        connectNulls: false,
+      },
+      {
+        name: '成交量',
+        type: 'bar',
+        xAxisIndex: 1,
+        yAxisIndex: 1,
+        data: timeData.map((time, index) => [time, volumes[index] !== null ? Math.abs(volumes[index]!) : 0]),
+        itemStyle: {
+          color: (params: any) => {
+            const percent = pricePercents[params.dataIndex]
+            return (percent !== null && percent !== undefined && percent >= 0) ? '#ef232a' : '#14b936'
+          },
+        },
+      },
+    ],
+    dataZoom: [
+      {
+        show: false,
+        type: 'inside',
+        xAxisIndex: [0, 1],
+        start: 0,
+        end: 100,
+      },
+    ],
+  }
+
+  Object.assign(fiveDayOption, newFiveDayOption)
 }
 
 const updateKlineChart = (data: KlineItem[]) => {
@@ -695,6 +1042,13 @@ const handleTrade = async () => {
 
 watch([currentCode, isDark], () => {
   fetchData()
+})
+watch(() => stockStore.currentStockCode, (newVal) => {
+  if (newVal) {
+    nextTick(() => {
+      scrollToElement('.stock-detail')
+    })
+  }
 })
 
 onMounted(() => {

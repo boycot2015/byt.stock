@@ -1,6 +1,7 @@
 <template>
   <div class="market-index p-4 shadow-sm mb-4 bg-[var(--color-bg)]">
-    <h3 class="text-lg font-medium !mb-3">大盘指数</h3>
+    <h3 class="text-lg font-medium !mb-3 flex justify-between items-center">大盘指数 <a-button type="primary" size="small"
+        @click="toggleSimple">{{ simple ? '预览' : '列表' }}</a-button></h3>
     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
       <div v-for="item in indexList" :key="item.code"
         :class="item.change >= 0 ? 'bg-[var(--error-bg)]' : 'bg-[var(--success-bg)]'"
@@ -9,6 +10,7 @@
           <span class="font-medium">{{ item.name }}</span>
           <span class="text-sm text-gray-500 hidden md:block">{{ item.code }}</span>
         </div>
+        <TimeChart :data="item.data || []" v-if="!simple" :simple="true" className="!h-15 md:!h-30" />
         <div class="flex items-center justify-between flex-col md:flex-row md:items-end">
           <span class="text-xl md:text-2xl font-bold">{{ item.price.toFixed(2) }}</span>
           <div class="text-right">
@@ -26,21 +28,28 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { getMarketIndex, type MarketIndex as MarketIndexType } from '@/api/stock'
+import { getMarketIndex, getStockTimeKline, type MarketIndex as MarketIndexType } from '@/api/stock'
 import { useStockStore } from '@/store/stock'
 import { useTradingTime } from '@/hooks/useTradingTime'
-import { useScroll } from '@/hooks/useScroll'
+import TimeChart from './TimeChart.vue'
 const { getPollInterval } = useTradingTime()
-const { scrollToElement } = useScroll()
 const stockStore = useStockStore()
 const indexList = ref<MarketIndexType[]>([])
-
+const simple = ref(true)
 const fetchData = async () => {
   indexList.value = await getMarketIndex()
+  if (!simple.value)
+    await Promise.allSettled(indexList.value.map(async (item) => {
+      const quote = await getStockTimeKline(item.code.slice(-6))
+      item.data = quote || []
+    }))
 }
 const handleClick = (item: MarketIndexType) => {
   stockStore.setCurrentStockCode(item.code.slice(-6))
-  scrollToElement('.stock-detail')
+}
+const toggleSimple = () => {
+  simple.value = !simple.value
+  !simple.value && fetchData()
 }
 onMounted(() => {
   fetchData()

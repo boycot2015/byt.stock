@@ -6,24 +6,24 @@
         <span class="text-sm text-[var(--color-primary)] cursor-pointer" @click="visible = true">+ 添加</span>
         <a-dropdown>
           <a class="text-sm text-gray-500 cursor-pointer flex items-center gap-1">
+            {{ sortLabel }}
             <span class="rotate-90">
               <SwapOutlined v-if="sortOrder === 'default'" />
               <SwapLeftOutlined v-else-if="sortOrder.includes('desc')" />
               <SwapRightOutlined v-else-if="sortOrder.includes('asc')" />
             </span>
-            {{ sortLabel }}
           </a>
           <template #overlay>
             <a-menu>
               <a-menu-item key="default" @click="handleSort('default')">默认</a-menu-item>
               <a-menu-item key="changePercent-desc" @click="handleSort('changePercent-desc')">
-                涨幅
+                涨跌幅
                 <span class="sort-icon">
                   <SwapLeftOutlined />
                 </span>
               </a-menu-item>
               <a-menu-item key="changePercent-asc" @click="handleSort('changePercent-asc')">
-                跌幅
+                涨跌幅
                 <span class="sort-icon">
                   <SwapRightOutlined />
                 </span>
@@ -49,7 +49,7 @@
       </div>
     </div>
 
-    <div v-if="editMode" class="flex justify-between items-center px-4 pb-2 border-b border-[var(--border-color)]">
+    <div v-if="editMode" class="flex justify-between items-center px-3 py-4 border-b border-[var(--border-color)]">
       <div class="flex items-center gap-2">
         <a-checkbox :checked="allSelected" @change="handleSelectAll">全选</a-checkbox>
         <span class="text-sm text-gray-500">已选 {{ selectedCodes.length }} 项</span>
@@ -157,7 +157,7 @@ const router = useRouter()
 defineProps({
   maxHeight: {
     type: String,
-    default: '370px',
+    default: '398px',
   },
 })
 
@@ -175,8 +175,8 @@ const dragIndex = ref<number | null>(null)
 const sortLabel = computed(() => {
   const labels: Record<string, string> = {
     'default': '默认',
-    'changePercent-desc': '涨幅',
-    'changePercent-asc': '跌幅',
+    'changePercent-desc': '涨跌幅',
+    'changePercent-asc': '涨跌幅',
     'price-desc': '价格',
     'price-asc': '价格',
   }
@@ -254,7 +254,7 @@ const handleSelectAll = (e: { target: { checked: boolean } }) => {
 const handleSort = (sortStr: string) => {
   const [key, order] = sortStr.split('-')
   sortKey.value = key
-  sortOrder.value = (order as 'asc' | 'desc') || 'desc'
+  sortOrder.value = (order as 'asc' | 'desc') || 'default'
 }
 
 const handleDragStart = (index: number) => {

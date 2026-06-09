@@ -147,7 +147,19 @@ async function getUserIdFromRequest(request, env) {
 
   return userId || 'default_user'
 }
-const isShStock = (code) => code.startsWith('6') || code.startsWith('00')
+// 上海指数代码列表（000开头）
+const SH_INDEX_CODES = ['000001', '000016', '000905', '000688', '000852']
+
+const isShStock = (code) => {
+  // 上海指数（000开头特定代码）
+  if (SH_INDEX_CODES.includes(code)) return true
+  // 股票：60/68开头 = 上海
+  if (code.startsWith('6') || code.startsWith('68')) return true
+  // 基金：51/52/58开头 = 上海
+  const prefix = code.substring(0, 2)
+  if (['51', '52', '58'].includes(prefix)) return true
+  return false
+}
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -580,22 +592,34 @@ export default {
         // 获取昨收价，兼容不同返回结构
         const preClose = result?.data?.preClose || parseFloat(result?.data?.qt?.[Object.keys(result?.data?.qt || {})[0]]?.[4]) || 0
         try {
-          // 分时成交量买卖盘正负区分：上涨为买盘(+)，下跌为卖盘(-)
+          // 分时成交量正负判断：基于量差值（当前成交量 vs 近5分钟平均）
           const data = []
           let lastPrice = preClose // 初始对比基准为昨收价
+          const volumeHistory = [] // 存储历史成交量，用于计算5分钟平均
+
           for (const line of trends) {
             const [time, price, avg, newPrice, newPrice2, volume] = line.split(',')
             const currentPrice = parseFloat(price)
             let vol = parseInt(volume) || 0 // 容错处理，避免NaN
 
-            // 买卖盘方向判断
-            if (currentPrice > lastPrice) {
-              vol = Math.abs(vol) // 价格上涨：主动性买盘，正
-            } else if (currentPrice < lastPrice) {
-              vol = -Math.abs(vol) // 价格下跌：主动性卖盘，负
+            // 计算近5分钟平均成交量
+            const avgVolume = volumeHistory.length > 0 ? volumeHistory.reduce((sum, v) => sum + v, 0) / volumeHistory.length : vol
+
+            // 根据量差值判断成交量正负
+            const volumeDiff = vol - avgVolume
+            if (volumeDiff > 0) {
+              vol = Math.abs(vol) // 放量：当前成交量 > 近5分钟平均，正量
+            } else if (volumeDiff < 0) {
+              vol = -Math.abs(vol) // 缩量：当前成交量 < 近5分钟平均，负量
             } else {
-              // 价格平盘时，符号继承上一笔的方向，保持数据连续性
+              // 量能持平时，符号继承上一笔的方向，保持数据连续性
               vol = lastPrice > preClose ? Math.abs(vol) : -Math.abs(vol)
+            }
+
+            // 更新成交量历史（最多保留5个）
+            volumeHistory.push(parseInt(volume) || 0)
+            if (volumeHistory.length > 5) {
+              volumeHistory.shift()
             }
 
             data.push({
@@ -614,6 +638,86 @@ export default {
       }
 
       // ==============================================
+      // 7. 获取5日分时K线数据 匹配接口: GET /stock/five-day-time-kline?code=xxx
+      // ==============================================
+      if (path === '/stock/five-day-time-kline' && method === 'GET') {
+        const code = url.searchParams.get('code') || ''
+        if (!/^\d{6}$/.test(code)) return json(null, 400, '请输入有效的6位股票代码')
+
+        const market = isShStock(code) ? '1' : '0'
+
+        // 使用东方财富的5日分时接口获取真实数据
+        const getFiveDayTimeKline = async () => {
+          try {
+            // 东方财富5日分时接口，ndays=5表示获取5个交易日的分时数据
+            const res = await fetch(`https://push2his.eastmoney.com/api/qt/stock/trends2/get?secid=${market}.${code}&ut=7e18b5514514e48b4864a7a89e73e62d&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58&iscr=0&iscca=0&ndays=5`)
+
+            if (!res.ok) {
+              return json([], 500, '获取5日分时数据失败')
+            }
+
+            const result = await res.json()
+            const trends = result?.data?.trends || []
+            const preClose = result?.data?.preClose || parseFloat(result?.data?.qt?.[Object.keys(result?.data?.qt || {})[0]]?.[4]) || 0
+
+            if (trends.length === 0) {
+              return json([])
+            }
+
+            const allData = []
+            const volumeHistory = [] // 存储历史成交量，用于计算5分钟平均
+            let lastPrice = preClose
+
+            for (const line of trends) {
+              const parts = line.split(',')
+              if (parts.length < 6) continue
+              const [time, open, price, high, low, volume, avgPrice, changeAmount, changePercent, turnover] = parts
+              // 解析时间和价格
+              const currentPrice = parseFloat(price)
+              const currentAvgPrice = parseFloat(avgPrice)
+              let vol = parseInt(volume) || 0
+
+              // 计算近5分钟平均成交量
+              const avgVolume = volumeHistory.length > 0 ? volumeHistory.reduce((sum, v) => sum + v, 0) / volumeHistory.length : vol
+
+              // 根据量差值判断成交量正负
+              const volumeDiff = vol - avgVolume
+              if (volumeDiff > 0) {
+                vol = Math.abs(vol) // 放量，正量
+              } else if (volumeDiff < 0) {
+                vol = -Math.abs(vol) // 缩量，负量
+              } else {
+                vol = lastPrice > preClose ? Math.abs(vol) : -Math.abs(vol) // 量能持平，按价格趋势判断
+              }
+
+              // 更新成交量历史（最多保留5个）
+              volumeHistory.push(parseInt(volume) || 0)
+              if (volumeHistory.length > 5) {
+                volumeHistory.shift()
+              }
+
+              allData.push({
+                preClose,
+                time: time,
+                price: currentPrice,
+                avgPrice: isNaN(currentAvgPrice) ? currentPrice : currentAvgPrice,
+                volume: vol,
+              })
+
+              lastPrice = currentPrice
+            }
+
+            return json(allData)
+          } catch (e) {
+            console.error('获取5日分时数据失败:', e)
+            return json([], 500, `获取5日分时数据失败: ${e.message}`)
+          }
+        }
+
+        return await getFiveDayTimeKline()
+      }
+
+      // ==============================================
       // 7. 获取盘口数据 匹配接口: GET /stock/depth?code=xxx
       // ==============================================
       if (path === '/stock/depth' && method === 'GET') {
@@ -621,8 +725,8 @@ export default {
         if (!/^\d{6}$/.test(code)) return json(null, 400, '请输入有效的6位股票代码')
 
         const market = isShStock(code) ? 'sh' : 'sz'
-        // 改用东方财富稳定盘口接口
-        const secid = (code.startsWith('6') || code.startsWith('00') ? '1' : '0') + '.' + code
+        // 使用isShStock统一判断市场（已包含基金前缀51/52/58）
+        const secid = (isShStock(code) ? '1' : '0') + '.' + code
         const fields = Array.from({ length: 200 }, (_, i) => `f${i + 1}`).join(',')
         // https://push2.eastmoney.com/api/qt/stock/get?ut=fa5fd1943c7b386f172d6893dbfba10b&invt=2&fltt=2&fields=f43,f57,f58,f169,f170,f46,f44,f51,f168,f47,f164,f116,f60,f45,f52,f50,f48,f167,f117,f71,f161,f49,f530,f135,f136,f137,f138,f139,f141,f142,f144,f145,f147,f148,f140,f143,f146,f149,f55,f62,f162,f92,f173,f104,f105,f84,f85,f183,f184,f185,f186,f187,f188,f189,f190,f191,f192,f107,f111,f86,f177,f78,f110,f262,f263,f264,f267,f268,f250,f251,f252,f253,f254,f255,f256,f257,f258,f266,f269,f270,f271,f273,f274,f275,f127,f199,f128,f193,f196,f194,f195,f197,f80,f280,f281,f282,f284,f285,f286,f287&secid=0.000100
         const res = await fetch(`https://push2.eastmoney.com/api/qt/stock/get?fields=${fields}&invt=1&fltt=2&secid=${secid}`, {
@@ -661,7 +765,85 @@ export default {
       }
 
       // ==============================================
-      // 8. 获取行情排行 匹配接口: GET /market/rank?type=xxx&count=xxx
+      // 8. 获取基金成分股列表 匹配接口: GET /stock/holdings?code=xxx
+      // ==============================================
+      if (path === '/stock/holdings' && method === 'GET') {
+        const code = url.searchParams.get('code') || ''
+        if (!/^\d{6}$/.test(code)) return json(null, 400, '请输入有效的6位基金代码')
+
+        // 判断是否为基金代码
+        const prefix = code.substring(0, 2)
+        if (!['00', '15', '16', '51', '52', '58'].includes(prefix)) {
+          return json(null, 400, '该接口仅支持基金代码')
+        }
+
+        try {
+          const year = new Date().getFullYear()
+          const quarter = Math.ceil((new Date().getMonth() + 1) / 3)
+
+          // 从东方财富获取基金十大持仓数据
+          const res = await fetch(`https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc&code=${code}&topline=10&year=${year}&month=&rt=0.${Date.now()}`, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+              Referer: `https://fundf10.eastmoney.com/ccmx_${code}.html`,
+            },
+          })
+
+          const text = await res.text()
+          const holdings = []
+          console.log(text, quarter, 'text')
+          // 按 <tr>...</tr> 分割每一行数据
+          const rowMatches = text.match(/<tr[\s\S]*?<\/tr>/g) || []
+
+          for (const row of rowMatches) {
+            // 跳过表头行（包含 th 或特定文字）
+            if (row.includes('<th') || row.includes('股票代码') || row.includes('股票名称')) continue
+
+            // 提取所有 <td>...</td>
+            const tdMatches = row.match(/<td[\s\S]*?<\/td>/g) || []
+            if (tdMatches.length < 7) continue
+
+            // 提取股票代码（第2个td）
+            const codeHtml = tdMatches[1] || ''
+            const codeMatch = codeHtml.match(/>(\d{6})</)
+            const stockCode = codeMatch ? codeMatch[1] : ''
+
+            // 提取股票名称（第3个td，class='tol'）
+            const nameHtml = tdMatches[2] || ''
+            const nameMatch = nameHtml.match(/>([^<]+)</)
+            const stockName = nameMatch ? nameMatch[1].trim() : ''
+
+            // 提取占比（第7个td，class='tor'，格式如 15.29%）
+            const propHtml = tdMatches[6] || ''
+            const propMatch = propHtml.match(/([\d.]+)%/)
+            const proportion = propMatch ? propMatch[1] : '0'
+
+            if (stockCode && stockName && proportion !== '0') {
+              holdings.push({
+                stockCode,
+                name: stockName,
+                proportion,
+              })
+            }
+
+            if (holdings.length >= 10) break
+          }
+
+          return json({
+            fundCode: code,
+            fundName: '',
+            year,
+            quarter,
+            holdings,
+          })
+        } catch (e) {
+          console.error('获取基金持仓数据失败:', e)
+          return json([], 500, `获取基金持仓数据失败: ${e.message}`)
+        }
+      }
+
+      // ==============================================
+      // 12. 获取行情排行 匹配接口: GET /market/rank?type=xxx&count=xxx
       // ==============================================
       if (path === '/market/rank' && method === 'GET') {
         const type = url.searchParams.get('type') || 'rise'

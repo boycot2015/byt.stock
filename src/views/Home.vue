@@ -10,7 +10,19 @@
           <SelfStockList />
         </div>
       </div>
-      <StockNews :default-code="currentStockCode" class="mb-4" />
+      <a-tabs v-if="isFound" class="bg-[var(--color-bg)]" :tabBarStyle="{
+        backgroundColor: 'var(--color-bg)',
+        padding: '0 10px',
+        marginBottom: '0px',
+      }">
+        <a-tab-pane tab="动态" key="news">
+          <StockNews :default-code="currentStockCode" class="mb-4 !p-0" />
+        </a-tab-pane>
+        <a-tab-pane tab="成分股" key="holdings">
+          <Holdings :code="currentStockCode" />
+        </a-tab-pane>
+      </a-tabs>
+      <StockNews v-else :default-code="currentStockCode" class="mb-4" />
       <MarketRank />
     </div>
   </div>
@@ -21,10 +33,12 @@ import { computed } from 'vue'
 import MarketIndex from '@/components/MarketIndex.vue'
 import SelfStockList from '@/components/SelfStockList.vue'
 import StockDetail from '@/components/StockDetail.vue'
+import Holdings from '@/components/Holdings.vue'
 import MarketRank from '@/components/MarketRank.vue'
 import StockNews from '@/components/StockNews.vue'
 import { useStockStore } from '@/store/stock'
 
 const stockStore = useStockStore()
 const currentStockCode = computed(() => stockStore.currentStockCode)
+const isFound = computed(() => currentStockCode.value && ['00', '15', '16', '51', '52', '58'].includes(currentStockCode.value.slice(0, 2)))
 </script>

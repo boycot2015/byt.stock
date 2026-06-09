@@ -50,7 +50,7 @@ export const useStockStore = defineStore(
   },
   {
     persist: {
-      pick: ['selfStocks'],
+      pick: ['selfStocks', 'currentStockCode'],
     },
   },
 )

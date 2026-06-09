@@ -8,6 +8,7 @@ export interface MarketIndex {
   changePercent: number
   volume: number
   amount: number
+  data?: KlineItem[]
 }
 
 export interface StockQuote {
@@ -26,7 +27,13 @@ export interface StockQuote {
   pe: number
   marketValue: number
 }
-
+export interface Holding extends StockQuote {
+  stockCode: string
+  stockName: string
+  proportion: string
+  change: number
+  quarterAdjustment: string
+}
 export interface KlineItem {
   time: string
   open: number
@@ -102,6 +109,14 @@ export const getStockKline = (code: string, period: string, count = 100) => {
 // 获取分时K线数据
 export const getStockTimeKline = (code: string) => {
   return request<any, KlineItem[]>('/stock/time-kline', {
+    method: 'GET',
+    params: { code },
+  })
+}
+
+// 获取5日分时数据
+export const getStockFiveDayTimeKline = (code: string) => {
+  return request<any, KlineItem[]>('/stock/five-day-time-kline', {
     method: 'GET',
     params: { code },
   })
@@ -186,5 +201,13 @@ export const getStockNews = (code: string, count: number = 10) => {
   return request<any, StockNewsData>('/news/list', {
     method: 'GET',
     params: { code, count },
+  })
+}
+
+// 获取个股成分股
+export const getStockHoldings = (code: string) => {
+  return request<any, { holdings: Holding[] }>('/stock/holdings', {
+    method: 'GET',
+    params: { code },
   })
 }
