@@ -160,6 +160,23 @@ const isShStock = (code) => {
   if (['51', '52', '58'].includes(prefix)) return true
   return false
 }
+
+// 接口内存缓存（同 isolate 内共享）
+const apiCache = new Map()
+
+function getCached(key) {
+  const item = apiCache.get(key)
+  if (item && item.expireAt > Date.now()) {
+    return item.data
+  }
+  if (item) apiCache.delete(key)
+  return null
+}
+
+function setCache(key, data, ttlMs = 5000) {
+  apiCache.set(key, { data, expireAt: Date.now() + ttlMs })
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -584,6 +601,9 @@ export default {
         const code = url.searchParams.get('code') || ''
         // console.log(code, 'trends');
         if (!/^\d{6}$/.test(code)) return json(null, 400, '请输入有效的6位股票代码')
+        const cacheKey = `/stock/time-kline?code=${code}`
+        const cached = getCached(cacheKey)
+        if (cached) return json(cached)
         const market = isShStock(code) ? '1' : '0'
         const res = await fetch(`https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${market}.${code}&ut=7e18b5514514e48b4864a7a89e73e62d&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58&iscr=0&iscca=0`)
         const result = await res.json()
@@ -631,6 +651,7 @@ export default {
             })
             lastPrice = currentPrice // 更新上一笔价格用于下一次对比
           }
+          setCache(cacheKey, data)
           return json(data)
         } catch (e) {
           return json([], 500, `获取分时K线数据失败: ${e.message}`)
@@ -643,6 +664,9 @@ export default {
       if (path === '/stock/five-day-time-kline' && method === 'GET') {
         const code = url.searchParams.get('code') || ''
         if (!/^\d{6}$/.test(code)) return json(null, 400, '请输入有效的6位股票代码')
+        const cacheKey = `/stock/five-day-time-kline?code=${code}`
+        const cached = getCached(cacheKey)
+        if (cached) return json(cached)
 
         const market = isShStock(code) ? '1' : '0'
 
@@ -707,6 +731,7 @@ export default {
               lastPrice = currentPrice
             }
 
+            setCache(cacheKey, allData)
             return json(allData)
           } catch (e) {
             console.error('获取5日分时数据失败:', e)

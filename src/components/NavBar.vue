@@ -45,7 +45,7 @@ const userStore = useUserStore()
 // 统一导航配置，无冗余，两端共用
 const navItems = [
   { label: '行情', icon: LineChartOutlined, route: 'Home' },
-  { label: '自选股', mobileLabel: '自选', icon: StarOutlined, route: 'SelfStock' },
+  { label: '自选股票/ETF', mobileLabel: '自选', icon: StarOutlined, route: 'SelfStock' },
   // { label: '排名', icon: FileTextOutlined, route: 'MarketRank' },
   { label: '资讯', icon: FileTextOutlined, route: 'News' },
 ]

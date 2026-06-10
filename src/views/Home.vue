@@ -10,13 +10,13 @@
           <SelfStockList />
         </div>
       </div>
-      <a-tabs v-if="isFound" class="bg-[var(--color-bg)]" :tabBarStyle="{
+      <a-tabs v-if="isFound" class="bg-[var(--color-bg)] !mb-4" :tabBarStyle="{
         backgroundColor: 'var(--color-bg)',
         padding: '0 10px',
         marginBottom: '0px',
       }">
         <a-tab-pane tab="动态" key="news">
-          <StockNews :default-code="currentStockCode" class="mb-4 !p-0" />
+          <StockNews :default-code="currentStockCode" class="!p-0" />
         </a-tab-pane>
         <a-tab-pane tab="成分股" key="holdings">
           <Holdings :code="currentStockCode" />

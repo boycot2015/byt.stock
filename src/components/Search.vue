@@ -1,5 +1,6 @@
 <template>
-  <a-auto-complete v-model="state.value" placeholder="输入股票代码/名称/拼音搜索" :filter-option="false" :options="state.data" @search="fetchUser" @select="handleSelect">
+  <a-auto-complete v-model="state.value" placeholder="输入股票代码/名称/拼音搜索" :filter-option="false" :options="state.data"
+    @search="fetchUser" @select="handleSelect">
     <!-- 自定义搜索结果项：显示名称+代码 -->
     <template #option="{ value, label }">
       <span class="flex justify-between w-full items-center">
@@ -20,6 +21,9 @@
 import { reactive, watch } from 'vue'
 import { searchStock } from '@/api/stock'
 import { debounce } from '@/utils/index'
+import { useRoute } from 'vue-router'
+
+const route = useRoute()
 
 const emit = defineEmits({
   select: (code: string) => code,
@@ -29,6 +33,7 @@ let lastFetchId = 0
 const state = reactive({
   data: [] as { label: string; value: string }[], // 定义data类型解决never错误
   value: '',
+  code: route.query.code as string || '',
   fetching: false,
 })
 
@@ -49,7 +54,7 @@ const fetchUser = debounce(async (value: string) => {
       value: stock.code,
     }))
     state.data = data
-    console.log('搜索股票成功', data)
+    // console.log('搜索股票成功', data)
   } catch (e) {
     console.error('搜索股票失败', e)
   } finally {
@@ -59,14 +64,16 @@ const fetchUser = debounce(async (value: string) => {
 
 // 选择股票后跳转到详情
 const handleSelect = (code: string) => {
+  state.code = code
   emit('select', code)
   state.value = state.data.find((item) => item.value === code)?.label || ''
 }
 
 watch(
   () => state.value,
-  () => {
-    state.data = []
+  (newValue, oldValue) => {
+    if (oldValue && newValue !== oldValue) state.data = []
+    state.value = state.data.find((item) => item.value === state.code)?.label || state.value || ''
     state.fetching = false
   },
 )

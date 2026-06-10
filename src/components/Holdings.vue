@@ -7,7 +7,7 @@
                 <a-table-column title="名称" dataIndex="name" :key="'name'">
                     <template #default="{ record }">
                         <span>{{ record.name }}</span>
-                        <span class="stock-code">{{ record.stockCode }}</span>
+                        <span class="stock-code ml-0 md:ml-2">{{ record.stockCode }}</span>
                     </template>
                 </a-table-column>
                 <a-table-column title="占比" dataIndex="proportion" :sorter="sortByField('proportion', true)"
@@ -152,7 +152,6 @@ watch(() => props.code, () => {
 
 <style scoped>
 .holdings-table .stock-code {
-    margin-left: 6px;
     font-size: 12px;
     color: #888;
 }

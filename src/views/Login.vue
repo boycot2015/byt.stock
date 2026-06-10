@@ -8,8 +8,8 @@
       </p>
     </div>
 
-    <div class="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-      <div class="bg-[var(--color-bg)] py-8 px-4 shadow sm:rounded-lg sm:px-10">
+    <div class="mt-8 px-6 sm:mx-auto sm:w-full sm:max-w-md">
+      <div class="bg-[var(--color-bg)] p-6 shadow rounded-lg">
         <a-form :model="loginForm" layout="vertical" @finish="handleLogin">
           <a-form-item label="用户名/邮箱" name="username" :rules="[{ required: true, message: '请输入用户名/邮箱' }]">
             <a-input v-model:value="loginForm.username" size="large" placeholder="请输入用户名或邮箱" />
@@ -19,7 +19,7 @@
             <a-input-password v-model:value="loginForm.password" size="large" placeholder="请输入密码" />
           </a-form-item>
 
-          <a-form-item>
+          <a-form-item class="!mb-0">
             <a-button type="primary" html-type="submit" size="large" block :loading="loading"> 登录 </a-button>
           </a-form-item>
         </a-form>

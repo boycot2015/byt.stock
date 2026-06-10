@@ -19,10 +19,12 @@
       </div>
       <div class="flex gap-2 justify-between">
         <a-button type="primary" class="!flex !items-center" @click="handleAddSelf">
-          <StarOutlined /> {{ isSelfStock ? '已自选' : '加自选' }}
+          <StarFilled v-if="isSelfStock" />
+          <StarOutlined v-else />
+          {{ isSelfStock ? '已自选' : '加自选' }}
         </a-button>
-        <a-button type="danger" @click="showTradeModal('sell')"> 卖出 </a-button>
-        <a-button type="success" @click="showTradeModal('buy')"> 买入 </a-button>
+        <!-- <a-button type="danger" @click="showTradeModal('sell')"> 卖出 </a-button>
+        <a-button type="success" @click="showTradeModal('buy')"> 买入 </a-button> -->
       </div>
     </div>
     <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-2">
@@ -37,10 +39,7 @@
             <a-tab-pane key="month" type="default" size="small" tab="月K"> </a-tab-pane>
           </a-tabs>
         </div>
-        <!-- <v-chart v-if="period === 'time'" :option="timeKlineOption" class="kline-chart !h-80 rounded" autoresize /> -->
-        <TimeChart v-if="period === 'time'" :data="klineData || []" :type="'time'" />
-        <v-chart v-else-if="period === 'fiveDay'" :option="fiveDayOption" class="kline-chart !h-80 rounded"
-          autoresize />
+        <TimeChart v-if="period === 'time' || period === 'fiveDay'" :data="klineData || []" />
         <v-chart v-else :option="option" class="kline-chart !h-80 rounded" autoresize />
       </div>
       <!-- 盘口数据 -->
@@ -107,15 +106,10 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed, watch, reactive, onUnmounted, nextTick } from 'vue'
-import { StarOutlined } from '@ant-design/icons-vue'
-import VChart from 'vue-echarts'
-import { use } from 'echarts/core'
-import { CanvasRenderer } from 'echarts/renderers'
-import { AxisBreak } from 'echarts/features.js'
-import { CandlestickChart, LineChart, BarChart } from 'echarts/charts'
-import { TitleComponent, TooltipComponent, GridComponent, VisualMapComponent, LegendComponent, DataZoomComponent } from 'echarts/components'
+import { StarOutlined, StarFilled } from '@ant-design/icons-vue'
 import TimeChart from './TimeChart.vue'
 import type { EChartsOption } from 'echarts'
+import { useChart } from '@/hooks/useChart'
 import { getStockQuote, getStockDepth, operateSelfStock, type StockQuote, type DepthData, getStockKline, type KlineItem, getStockTimeKline, getStockFiveDayTimeKline } from '@/api/stock'
 import { useStockStore } from '@/store/stock'
 import { useUserStore } from '@/store/user'
@@ -125,24 +119,26 @@ import { message } from 'ant-design-vue'
 import { useTheme, useDark } from '@/hooks/useTheme'
 import { useTradingTime } from '@/hooks/useTradingTime'
 import { useScroll } from '@/hooks/useScroll'
+const { VChart, getCommonOption } = useChart()
 const { themeToken } = useTheme()
 const { getPollInterval } = useTradingTime()
 const { isDark } = useDark()
 const { scrollToElement } = useScroll()
-use([CanvasRenderer, CandlestickChart, LineChart, BarChart, AxisBreak, TitleComponent, VisualMapComponent, TooltipComponent, GridComponent, LegendComponent, DataZoomComponent])
-
 const stockStore = useStockStore()
 const userStore = useUserStore()
 const stockInfo = ref<StockQuote>()
 const depthData = ref<DepthData>()
 const klineData = ref<KlineItem[]>()
-const period = ref('time')
+const period = ref(stockStore.currentPeriod)
 const currentCode = computed(() => stockStore.currentStockCode)
 const tradeModalVisible = ref(false)
 const tradeType = ref<'buy' | 'sell'>('buy')
 const tradeForm = ref({
   quantity: 100,
   price: 0,
+})
+watch(() => stockStore.currentPeriod, (p) => {
+  period.value = p
 })
 const pollTimer = ref<number | null>(null)
 const isPooTime = computed(() => period.value === 'time')
@@ -166,6 +162,7 @@ const isSelfStock = computed(() => {
 
 // K线图配置
 const option = reactive<EChartsOption>({
+  ...getCommonOption(),
   tooltip: {
     trigger: 'axis',
     axisPointer: {
@@ -179,12 +176,12 @@ const option = reactive<EChartsOption>({
   grid: [
     {
       top: '0%',
-      left: '10%',
+      left: '0%',
       right: '10%',
       height: '60%',
     },
     {
-      left: '10%',
+      left: '5%',
       right: '10%',
       top: '80%',
       height: '40%',
@@ -196,6 +193,15 @@ const option = reactive<EChartsOption>({
       boundaryGap: true,
       axisLine: { onZero: false },
       splitLine: { show: false },
+      axisLabel: {
+        alignMaxLabel: 'right',
+        alignMinLabel: 'left',
+        verticalAlign: 'middle',
+        hideOverlap: true,
+        align: 'center',
+        showMinLabel: true,
+        showMaxLabel: true,
+      },
       data: [],
     },
     {
@@ -264,8 +270,6 @@ const option = reactive<EChartsOption>({
     },
   ],
 })
-const timeKlineOption = reactive<EChartsOption>({})
-const fiveDayOption = reactive<EChartsOption>({})
 const fetchData = async () => {
   stockInfo.value = await getStockQuote(currentCode.value)
   depthData.value = await getStockDepth(currentCode.value)
@@ -287,348 +291,9 @@ const fetchData = async () => {
     week: (kline as unknown as KlineItem[]).slice(-300),
     month: (kline as unknown as KlineItem[]).slice(-100),
   }
-  if (period.value === 'fiveDay') {
-    updateFiveDayChart(dataMap['fiveDay'])
-  } else if (isPooTime.value) {
-    updateTimeKlineChart(dataMap['time'])
-  } else {
+  if (!isPooTime.value && period.value !== 'fiveDay') {
     updateKlineChart(dataMap[period.value])
   }
-}
-
-const updateFiveDayChart = (data: any[]) => {
-  if (!data || data.length < 1) return
-
-  const firstValidData = data.find(item => item.preClose || item.price || item.close)
-  const basePrice = firstValidData?.preClose || firstValidData?.price || firstValidData?.close || 0
-
-  if (basePrice === 0) return
-
-  const convertToPercent = (price: number) => {
-    return Number((((price - basePrice) / basePrice) * 100).toFixed(2))
-  }
-
-  const parseTime = (timeStr: string) => {
-    if (timeStr.includes(' ')) {
-      const [datePart, timePart] = timeStr.split(' ')
-      const date = new Date()
-
-      if (datePart.includes('-')) {
-        const parts = datePart.split('-').map(Number)
-        if (parts.length === 3) {
-          date.setFullYear(parts[0], parts[1] - 1, parts[2])
-        } else if (parts.length === 2) {
-          date.setMonth(parts[0] - 1, parts[1])
-        }
-      }
-
-      if (timePart) {
-        const [hour, minute] = timePart.split(':').map(Number)
-        date.setHours(hour, minute, 0, 0)
-      }
-
-      return date.getTime()
-    } else {
-      const [hour, minute] = timeStr.split(':').map(Number)
-      const date = new Date()
-      date.setHours(hour, minute, 0, 0)
-      return date.getTime()
-    }
-  }
-
-  const formatDateStr = (timestamp: number) => {
-    const date = new Date(timestamp)
-    const year = date.getFullYear()
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const day = String(date.getDate()).padStart(2, '0')
-    return `${year}-${month}-${day}`
-  }
-
-  const dates = [...new Set(data.map(item => {
-    const time = parseTime(item.time)
-    return formatDateStr(time)
-  }))].sort()
-
-  const dataMap = new Map<number, { price: number; avgPrice: number; volume: number; preClose: number }>()
-  let lastDataTime = 0
-
-  data.forEach((item) => {
-    const time = parseTime(item.time)
-    dataMap.set(time, {
-      price: item.price,
-      avgPrice: item.avgPrice || item.price,
-      volume: item.volume || 0,
-      preClose: item.preClose || basePrice
-    })
-    if (time > lastDataTime) {
-      lastDataTime = time
-    }
-  })
-
-  const timeData: number[] = []
-  const pricePercents: (number | null)[] = []
-  const volumes: (number | null)[] = []
-  const timeToVolumeMap = new Map<number, number | null>()
-
-  let currentPrice = 0
-  let currentVolume = 0
-  let hasData = false
-
-  const generateDayMinuteData = (dateStr: string) => {
-    const dateParts = dateStr.split('-').map(Number)
-    const year = dateParts[0] || new Date().getFullYear()
-    const month = dateParts[1] - 1
-    const day = dateParts[2]
-
-    const session1Start = new Date(year, month, day, 9, 30, 0, 0).getTime()
-    const session1End = new Date(year, month, day, 11, 30, 0, 0).getTime()
-    const session2Start = new Date(year, month, day, 13, 0, 0, 0).getTime()
-    const session2End = new Date(year, month, day, 15, 0, 0, 0).getTime()
-
-    return { session1Start, session1End, session2Start, session2End }
-  }
-
-  const generateMinuteData = (start: number, end: number) => {
-    let current = start
-    while (current <= end) {
-      const existingData = dataMap.get(current)
-      if (existingData) {
-        currentPrice = existingData.price
-        currentVolume = existingData.volume
-        hasData = true
-      }
-
-      timeData.push(current)
-
-      if (hasData && current <= lastDataTime) {
-        pricePercents.push(convertToPercent(currentPrice))
-        volumes.push(currentVolume)
-        timeToVolumeMap.set(current, currentVolume)
-      } else {
-        pricePercents.push(null as unknown as number)
-        volumes.push(null as unknown as number)
-        timeToVolumeMap.set(current, null)
-      }
-
-      current += 60 * 1000
-    }
-  }
-
-  // 检测断点：交易日之间（15:00到次日9:30）和午休时间（11:30到13:00）
-  const breaks: { start: number; end: number }[] = []
-
-  // 检测交易日之间的断点
-  for (let i = 1; i < dates.length; i++) {
-    const prevDateParts = dates[i - 1].split('-').map(Number)
-    const currDateParts = dates[i].split('-').map(Number)
-
-    const lastDayEnd = new Date(prevDateParts[0], prevDateParts[1] - 1, prevDateParts[2], 15, 0, 0, 0).getTime()
-    const currentDayStart = new Date(currDateParts[0], currDateParts[1] - 1, currDateParts[2], 9, 30, 0, 0).getTime()
-
-    breaks.push({
-      start: lastDayEnd,
-      end: currentDayStart,
-    })
-  }
-
-  // 检测每个交易日内的午休时间断点（11:30到13:00）
-  dates.forEach((dateStr) => {
-    const dateParts = dateStr.split('-').map(Number)
-    const breakStart = new Date(dateParts[0], dateParts[1] - 1, dateParts[2], 11, 30, 0, 0).getTime()
-    const breakEnd = new Date(dateParts[0], dateParts[1] - 1, dateParts[2], 13, 0, 0, 0).getTime()
-
-    breaks.push({
-      start: breakStart,
-      end: breakEnd,
-    })
-  })
-
-  dates.forEach((dateStr) => {
-    const { session1Start, session1End, session2Start, session2End } = generateDayMinuteData(dateStr)
-
-    generateMinuteData(session1Start, session1End)
-    generateMinuteData(session2Start, session2End)
-  })
-
-  // const validPercents = pricePercents.filter((p): p is number => p !== null)
-  // const lastValidPercent = validPercents.length > 0 ? validPercents[validPercents.length - 1] : 0
-  const mainColor = themeToken.value.colorPrimary
-
-  const newFiveDayOption: EChartsOption = {
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: {
-        type: 'cross',
-      },
-      // formatter: (params: any) => {
-      //   let result = ''
-      //   params.forEach((item: any) => {
-      //     const time = item.value?.[0] || item.name
-      //     const value = item.value?.[1] ?? item.value
-      //     let color = '#999'
-
-      //     if (item.seriesName === '成交量') {
-      //       const vol = timeToVolumeMap.get(time) || value
-      //       color = vol >= 0 ? '#ef232a' : '#14b936'
-      //       result += `<span style="display:inline-block;margin-right:5px;border-radius:50%;width:10px;height:10px;background-color:${color};"></span>`
-      //       result += `${item.seriesName}: ${value !== null && value !== undefined ? formatVolume(value) : '-'}`
-      //     } else {
-      //       color = (value !== null && value !== undefined && value >= 0) ? '#ef232a' : '#14b936'
-      //       result += `<span style="display:inline-block;margin-right:5px;border-radius:50%;width:10px;height:10px;background-color:${color};"></span>`
-      //       result += `${item.seriesName}: ${value !== null && value !== undefined ? value.toFixed(2) + '%' : '-'}`
-      //     }
-      //     result += '<br/>'
-      //   })
-      //   return result
-      // },
-    },
-    grid: [
-      {
-        top: '5%',
-        left: '5%',
-        right: '5%',
-        height: '55%',
-      },
-      {
-        left: '5%',
-        right: '5%',
-        top: '70%',
-        height: '25%',
-      },
-    ],
-    xAxis: [
-      {
-        type: 'time',
-        axisLabel: {
-          alignMaxLabel: 'center',
-          verticalAlign: 'middle',
-          hideOverlap: true,
-          align: 'center',
-          margin: 10,
-          formatter: (value: number) => {
-            const date = new Date(value)
-            const month = (date.getMonth() + 1).toString().padStart(2, '0')
-            const day = date.getDate().toString().padStart(2, '0')
-            const hour = date.getHours().toString().padStart(2, '0')
-            const minute = date.getMinutes().toString().padStart(2, '0')
-            return `${month}-${day} ${hour}:${minute}`
-          },
-        },
-        splitLine: {
-          show: true,
-          lineStyle: {
-            color: themeToken.value.colorBorder,
-            type: 'solid',
-          },
-        },
-        axisLine: {
-          show: true,
-          lineStyle: {
-            color: themeToken.value.colorBorder,
-          },
-        },
-        axisTick: {
-          show: false,
-        },
-        breaks: breaks.length > 0 ? breaks : undefined,
-        breakArea: {
-          show: false,
-          expandOnClick: false,
-          zigzagAmplitude: 0,
-          zigzagZ: 0,
-        },
-      },
-      {
-        type: 'time',
-        gridIndex: 1,
-        axisLabel: { show: false },
-        axisTick: { show: false },
-        splitLine: { show: false },
-        axisLine: { show: false },
-        breaks: breaks.length > 0 ? breaks : undefined,
-        breakArea: {
-          show: false,
-          expandOnClick: false,
-          zigzagAmplitude: 0,
-          zigzagZ: 0,
-        },
-      },
-    ],
-    yAxis: [
-      {
-        type: 'value',
-        scale: false,
-        axisLabel: {
-          show: true,
-          formatter: '{value}%',
-          fontSize: 10,
-          color: themeToken.value.colorTextSecondary,
-        },
-        axisLine: {
-          show: false,
-        },
-        axisTick: {
-          show: false,
-        },
-        splitLine: {
-          show: true,
-          lineStyle: {
-            color: themeToken.value.colorBorder,
-          },
-        },
-      },
-      {
-        scale: true,
-        gridIndex: 1,
-        splitNumber: 2,
-        axisLabel: { show: false },
-        axisLine: { show: false },
-        axisTick: { show: false },
-        splitLine: { show: false },
-      },
-    ],
-    series: [
-      {
-        name: '5日涨跌幅',
-        type: 'line',
-        data: timeData.map((time, index) => [time, pricePercents[index]]),
-        lineStyle: {
-          width: 1.5,
-          color: mainColor,
-        },
-        itemStyle: {
-          color: mainColor,
-        },
-        symbol: 'none',
-        smooth: false,
-        connectNulls: false,
-      },
-      {
-        name: '成交量',
-        type: 'bar',
-        xAxisIndex: 1,
-        yAxisIndex: 1,
-        data: timeData.map((time, index) => [time, volumes[index] !== null ? Math.abs(volumes[index]!) : 0]),
-        itemStyle: {
-          color: (params: any) => {
-            const percent = pricePercents[params.dataIndex]
-            return (percent !== null && percent !== undefined && percent >= 0) ? '#ef232a' : '#14b936'
-          },
-        },
-      },
-    ],
-    dataZoom: [
-      {
-        show: false,
-        type: 'inside',
-        xAxisIndex: [0, 1],
-        start: 0,
-        end: 100,
-      },
-    ],
-  }
-
-  Object.assign(fiveDayOption, newFiveDayOption)
 }
 
 const updateKlineChart = (data: KlineItem[]) => {
@@ -645,7 +310,20 @@ const updateKlineChart = (data: KlineItem[]) => {
     ; (option.series as any)[0].type = 'candlestick'
     ; (option.series as any)[0].data = klineValues
     ; (option.series as any)[1].data = volumes
-    ; (option.dataZoom as any)[0].minSpan = period.value === 'day' ? 10 : period.value === 'week' ? 30 : 80
+  const dataLen = dates.length
+  let minSpan: number
+  if (period.value === 'day') {
+    minSpan = Math.max(5, Math.min(20, Math.floor(dataLen * 0.01)))
+  } else {
+    const isLargeData = dataLen > 200
+    const isMediumData = dataLen > 100
+    if (period.value === 'week') {
+      minSpan = isLargeData ? Math.max(5, Math.floor(dataLen * 0.01)) : isMediumData ? 20 : 40
+    } else {
+      minSpan = isLargeData ? Math.max(5, Math.floor(dataLen * 0.01)) : isMediumData ? 30 : 60
+    }
+  }
+  ; (option.dataZoom as any)[0].minSpan = minSpan
   // 移除分时相关的系列和配置
   if ((option.series as any).length > 2) {
     ; (option.series as any).splice(2, 2)
@@ -655,339 +333,7 @@ const updateKlineChart = (data: KlineItem[]) => {
   }
 }
 
-const updateTimeKlineChart = (data: any[]) => {
-  const preClose = data[0]?.preClose || 0
-  // 转换价格为涨跌幅百分比
-  const covertToPercent = (price: number) => {
-    return Number((((price - preClose) / preClose) * 100).toFixed(2))
-  }
-
-  // 处理时间和休市
-  const generateTimeData = (timeStr: string) => {
-    const [hour, minute] = timeStr.split(':').map(Number)
-    const now = new Date()
-    return new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute).getTime()
-  }
-
-  const breakStart = new Date(new Date().setHours(11, 30, 0, 0)).getTime()
-  const breakEnd = new Date(new Date().setHours(13, 0, 0, 0)).getTime()
-
-  const dataMap = new Map<number, { price: number; avgPrice: number; volume: number }>()
-  let lastDataTime = 0
-  data.forEach((item) => {
-    const time = generateTimeData(item.time)
-    dataMap.set(time, {
-      price: item.price,
-      avgPrice: item.avgPrice,
-      volume: item.volume
-    })
-    if (time > lastDataTime) {
-      lastDataTime = time
-    }
-  })
-
-  const timeData: number[] = []
-  const pricePercents: number[] = []
-  const avgPercents: number[] = []
-  const volumes: number[] = []
-  const timeToVolumeMap = new Map<number, number | null>()
-
-  const session1Start = new Date(new Date().setHours(9, 30, 0, 0)).getTime()
-  const session1End = breakStart
-  const session2Start = breakEnd
-  const session2End = new Date(new Date().setHours(15, 0, 0, 0)).getTime()
-
-  let currentPrice = 0
-  let currentAvg = 0
-  let currentVolume = 0
-  let hasData = false
-
-  const generateMinuteData = (start: number, end: number) => {
-    let current = start
-    while (current <= end) {
-      const existingData = dataMap.get(current)
-      if (existingData) {
-        currentPrice = existingData.price
-        currentAvg = existingData.avgPrice
-        currentVolume = existingData.volume
-        hasData = true
-      }
-
-      timeData.push(current)
-
-      if (hasData && current <= lastDataTime) {
-        pricePercents.push(covertToPercent(currentPrice))
-        avgPercents.push(covertToPercent(currentAvg))
-        volumes.push(currentVolume)
-        timeToVolumeMap.set(current, currentVolume)
-      } else {
-        pricePercents.push(null as unknown as number)
-        avgPercents.push(null as unknown as number)
-        volumes.push(null as unknown as number)
-        timeToVolumeMap.set(current, null)
-      }
-
-      current += 60 * 1000
-    }
-  }
-
-  generateMinuteData(session1Start, session1End)
-  generateMinuteData(session2Start, session2End)
-
-  // const validPercents = [...pricePercents, ...avgPercents].filter((p): p is number => p !== null)
-  // const minPercent = validPercents.length > 0 ? Math.min(...validPercents) : -10
-  // const maxPercent = validPercents.length > 0 ? Math.max(...validPercents) : 10
-
-  const lastValidPricePercent = pricePercents.filter((p): p is number => p !== null).pop() || 0
-  // console.log(minPercent, maxPercent, pricePercents)
-  // 直接构造完整的分时K线配置
-  const newTimeKlineOption = {
-    ...option, // 保留基础配置
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: {
-        type: 'cross',
-      },
-      formatter: (params: any) => {
-        let result = ''
-        params.forEach((item: any) => {
-          const time = item.value[0]
-          const value = item.value[1]
-          let color = '#999'
-
-          if (item.seriesName === '成交量') {
-            const volumeValue = timeToVolumeMap.get(time)
-            if (volumeValue !== null && volumeValue !== undefined) {
-              color = volumeValue >= 0 ? '#ef232a' : '#14b936'
-            }
-          } else {
-            if (value > 0) {
-              color = '#ef232a'
-            } else if (value < 0) {
-              color = '#14b936'
-            }
-          }
-
-          result += `<span style="display:inline-block;margin-right:5px;border-radius:50%;width:10px;height:10px;background-color:${color};"></span>`
-          if (item.seriesName === '成交量') {
-            result += `${item.seriesName}: ${value !== null ? formatVolume(value) : '-'}`
-          } else {
-            result += `${item.seriesName}: ${value !== null ? value.toFixed(2) + '%' : '-'}`
-          }
-          result += '<br/>'
-        })
-        return result
-      },
-    },
-    grid: [
-      {
-        top: '0%',
-        left: '0%',
-        right: '10%',
-        height: '60%',
-      },
-      {
-        left: '0%',
-        right: '10%',
-        top: '70%',
-        height: '36%',
-      },
-    ],
-    xAxis: [
-      {
-        type: 'time',
-        axisLabel: {
-          alignMaxLabel: 'center',
-          verticalAlign: 'middle',
-          hideOverlap: true,
-          align: 'center', // 标签文字水平居中
-          margin: 10, // 标签与轴线的距离
-          rotate: 0, // 可选：旋转角度，0 表示水平
-        },
-        splitLine: {
-          show: true,
-          lineStyle: {
-            color: themeToken.value.colorBorder,
-            type: 'solid' // 设置为实线
-          }
-        },
-        axisLine: {
-          show: true,
-          lineStyle: {
-            color: themeToken.value.colorBorder,
-            type: 'dashed' // 设置为虚线
-          }
-        },
-        axisTick: {
-          show: false,
-        },
-        breaks: [
-          {
-            start: breakStart,
-            end: breakEnd,
-            gap: 0,
-          },
-        ],
-        breakLabelLayout: {
-          moveOverlap: true,
-        },
-        breakArea: {
-          expandOnClick: false,
-          zigzagAmplitude: 0,
-          zigzagZ: 200,
-        },
-        // splitLine: { show: false },
-      },
-      {
-        type: 'time',
-        gridIndex: 1,
-        boundaryGap: [0, 0],
-        axisLabel: { show: false },
-        axisTick: { show: false },
-        splitLine: { show: false },
-        breaks: [
-          {
-            start: breakStart,
-            end: breakEnd,
-            gap: 0,
-          },
-        ],
-        breakArea: {
-          show: false,
-          expandOnClick: false,
-          zigzagAmplitude: 0,
-          zigzagZ: 0,
-        },
-      },
-    ],
-    yAxis: [
-      {
-        type: 'value',
-        scale: false,
-        show: false,
-        min: function (value: { min: number; max: number }) {
-          const maxAbs = Math.max(Math.abs(value.min), Math.abs(value.max))
-          return -maxAbs
-        },
-        max: function (value: { min: number; max: number }) {
-          const maxAbs = Math.max(Math.abs(value.min), Math.abs(value.max))
-          return maxAbs
-        },
-        axisLabel: {
-          show: true,
-          formatter: '{value}%',
-          fontSize: 10,
-          color: themeToken.value.colorTextSecondary,
-        },
-        axisLine: {
-          show: false,
-          lineStyle: {
-            color: themeToken.value.colorBorder,
-          },
-        },
-        axisTick: {
-          show: false,
-          lineStyle: {
-            color: themeToken.value.colorBorder,
-          },
-        },
-        splitLine: {
-          show: false,
-          lineStyle: {
-            type: 'solid',
-            color: themeToken.value.colorBorder,
-          }
-        },
-        splitArea: {
-          show: false,
-        },
-        markLine: {
-          silent: true,
-          data: [{ yAxis: lastValidPricePercent }],
-          lineStyle: {
-            color: '#999',
-            type: 'dashed',
-            width: 1,
-          },
-          label: {
-            show: true,
-            position: 'end',
-            formatter: (params: any) => `${params.value.toFixed(2)}%`,
-            fontSize: 10,
-            color: themeToken.value.colorTextSecondary,
-          },
-        },
-      },
-      {
-        scale: true,
-        gridIndex: 1,
-        splitNumber: 2,
-        axisLabel: { show: false },
-        axisLine: { show: false },
-        axisTick: { show: false },
-        splitLine: { show: false },
-      },
-    ],
-    series: [
-      // 价格折线
-      {
-        name: '涨跌幅',
-        type: 'line',
-        data: timeData.map((time, index) => [time, pricePercents[index]]),
-        lineStyle: {
-          width: 1,
-          // color: '#14b936'
-        },
-        symbol: 'none',
-        smooth: false,
-      },
-      // 成交量
-      {
-        name: '成交量',
-        type: 'bar',
-        xAxisIndex: 1,
-        yAxisIndex: 1,
-        data: timeData.map((time, index) => [time, Math.abs(volumes[index])]),
-        itemStyle: {
-          color: (params: any) => {
-            const percent = volumes[params.dataIndex]
-            return percent >= 0 ? '#ef232a' : '#14b936'
-          },
-        },
-      },
-      // // 均价折线
-      // {
-      //   name: '均价',
-      //   type: 'line',
-      //   data: timeData.map((time, index) => [time, avgPercents[index]]),
-      //   lineStyle: {
-      //     width: 1,
-      //     color: '#faad14'
-      //   },
-      //   symbol: 'none',
-      //   smooth: false
-      // }
-    ],
-    visualMap: [
-      {
-        show: false,
-        dimension: 1,
-        seriesIndex: 0,
-        pieces: [
-          { value: 0, color: 'white' },
-          { lt: 0, color: 'red' },
-          { gt: 0, color: 'green' },
-        ],
-      },
-    ],
-    dataZoom: null as unknown as any,
-  }
-  // 赋值更新响应式timeKlineOption
-  Object.assign(timeKlineOption, newTimeKlineOption)
-}
-
 const changePeriod = (p: string) => {
-  period.value = p
   fetchData()
   if (pollTimer.value) {
     clearInterval(pollTimer.value)
@@ -996,6 +342,7 @@ const changePeriod = (p: string) => {
   if (p === 'time') {
     startPolling()
   }
+  stockStore.setCurrentPeriod(p)
 }
 
 const handleAddSelf = async () => {
@@ -1010,11 +357,11 @@ const handleAddSelf = async () => {
   }
 }
 
-const showTradeModal = (type: 'buy' | 'sell') => {
-  tradeType.value = type
-  tradeForm.value.price = stockInfo.value?.price || 0
-  tradeModalVisible.value = true
-}
+// const showTradeModal = (type: 'buy' | 'sell') => {
+//   tradeType.value = type
+//   tradeForm.value.price = stockInfo.value?.price || 0
+//   tradeModalVisible.value = true
+// }
 
 const handleTrade = async () => {
   if (!stockInfo.value) return

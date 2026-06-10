@@ -19,7 +19,7 @@ export const useStockStore = defineStore(
   () => {
     const selfStocks = ref<Stock[]>([])
     const currentStockCode = ref('399006')
-
+    const currentPeriod = ref('time')
     function addSelfStock(stock: Stock) {
       const index = selfStocks.value.findIndex((item) => item.code === stock.code)
       if (index === -1) {
@@ -39,18 +39,24 @@ export const useStockStore = defineStore(
       selfStocks.value = stocks
     }
 
+    function setCurrentPeriod(period: string) {
+      currentPeriod.value = period
+    }
+
     return {
       selfStocks,
       currentStockCode,
+      currentPeriod,
       addSelfStock,
       removeSelfStock,
+      setCurrentPeriod,
       setCurrentStockCode,
       updateSelfStocks,
     }
   },
   {
     persist: {
-      pick: ['selfStocks', 'currentStockCode'],
+      pick: ['selfStocks', 'currentStockCode', 'currentPeriod'],
     },
   },
 )

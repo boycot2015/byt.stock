@@ -1,7 +1,7 @@
 <template>
   <div class="self-stock-list shadow-sm mb-4 bg-[var(--color-bg)]">
     <div class="flex justify-between items-center p-4 border-b border-[var(--border-color)]">
-      <h3 class="text-lg font-medium">自选股</h3>
+      <h3 class="text-lg font-medium">自选股票/ETF</h3>
       <div class="flex items-center gap-2">
         <span class="text-sm text-[var(--color-primary)] cursor-pointer" @click="visible = true">+ 添加</span>
         <a-dropdown>

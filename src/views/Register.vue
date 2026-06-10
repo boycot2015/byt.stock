@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+  <div class="min-h-screen flex flex-col justify-center py-6 sm:px-6 lg:px-8">
     <div class="sm:mx-auto sm:w-full sm:max-w-md">
       <h2 class="mt-6 text-center text-3xl font-bold">创建新账户</h2>
       <p class="mt-2 text-center text-sm">
@@ -8,8 +8,8 @@
       </p>
     </div>
 
-    <div class="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-      <div class="bg-[var(--color-bg)] py-8 px-4 shadow sm:rounded-lg sm:px-10">
+    <div class="mt-8 px-6 sm:mx-auto sm:w-full sm:max-w-md">
+      <div class="bg-[var(--color-bg)] p-6 shadow rounded-lg">
         <a-form :model="registerForm" layout="vertical" @finish="handleRegister">
           <a-form-item label="用户名" name="username" :rules="[
             { required: true, message: '请输入用户名' },
@@ -39,7 +39,7 @@
             <a-input-password v-model:value="registerForm.confirmPassword" size="large" placeholder="请再次输入密码" />
           </a-form-item>
 
-          <a-form-item>
+          <a-form-item class="!mb-0">
             <a-button type="primary" html-type="submit" size="large" block :loading="loading"> 注册 </a-button>
           </a-form-item>
         </a-form>

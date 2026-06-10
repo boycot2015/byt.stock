@@ -24,7 +24,7 @@ const stockStore = useStockStore()
 
 const handleSelectStock = (code: string) => {
   stockStore.setCurrentStockCode(code)
-  router.push({ name: 'Home', params: { code } })
+  router.push({ name: 'Home', query: { code } })
   scrollToElement('.stock-detail')
 }
 
