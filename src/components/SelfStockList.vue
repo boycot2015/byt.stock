@@ -84,7 +84,7 @@
 
         <div class="text-right">
           <span :class="item.change >= 0 ? 'text-red-500' : 'text-green-500'" class="text-lg font-medium">
-            {{ item.price.toFixed(2) }}
+            {{ item.price?.toFixed(checkIsFound(item.code) ? 3 : 2) || '-' }}
           </span>
           <div class="mt-1">
             <span :class="item.change >= 0 ? 'text-red-500' : 'text-green-500'" class="text-sm">
@@ -134,7 +134,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { getSelfStocks, type StockQuote, operateSelfStock } from '@/api/stock'
-import { formatVolume } from '@/utils/index'
+import { formatVolume, checkIsFound } from '@/utils/index'
 import { useStockStore } from '@/store/stock'
 import Search from './Search.vue'
 import { message } from 'ant-design-vue'
@@ -205,7 +205,6 @@ const allSelected = computed(() => {
   return sortedStockList.value.length > 0 &&
     sortedStockList.value.every(item => selectedCodes.value.includes(item.code))
 })
-
 const fetchData = async () => {
   stockList.value = await getSelfStocks()
   stockStore.updateSelfStocks(stockList.value)

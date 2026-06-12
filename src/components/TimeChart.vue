@@ -111,6 +111,7 @@ function generateTimeOption(data: TimeDataItem[]) {
 
   const timeData: number[] = []
   const pricePercents: number[] = []
+  const prices: number[] = []
   const volumes: number[] = []
   const timeToVolumeMap = new Map<number, number | null>()
 
@@ -132,10 +133,12 @@ function generateTimeOption(data: TimeDataItem[]) {
 
       if (hasData && current <= lastDataTime) {
         pricePercents.push(covertToPercent(currentPrice))
+        prices.push(currentPrice)
         volumes.push(currentVolume)
         timeToVolumeMap.set(current, currentVolume)
       } else {
         pricePercents.push(null as unknown as number)
+        prices.push(null as unknown as number)
         volumes.push(null as unknown as number)
         timeToVolumeMap.set(current, null)
       }
@@ -288,7 +291,7 @@ function generateTimeOption(data: TimeDataItem[]) {
   const series = [{
     name: '涨跌幅',
     type: 'line',
-    data: timeData.map((time, index) => [time, pricePercents[index]]),
+    data: timeData.map((time, index) => [time, pricePercents[index], prices[index]]),
     lineStyle: { width: 1 },
     symbol: 'none',
     smooth: false,
@@ -343,7 +346,9 @@ function generateTimeOption(data: TimeDataItem[]) {
           if (item.seriesName === '成交量') {
             result += `${item.seriesName}: ${value !== null ? formatVolume(value) : '-'}`
           } else {
-            result += `${item.seriesName}: ${value !== null ? value.toFixed(2) + '%' : '-'}`
+            const price = item.value[2]
+            result += `${item.seriesName}: ${value !== null ? value.toFixed(2) + '%' : '-'} `
+            result += price !== null ? `(${price.toFixed(2)})` : ''
           }
           result += '<br/>'
         })

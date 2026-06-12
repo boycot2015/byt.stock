@@ -56,3 +56,6 @@ export function formatVolume(volume: number): string {
     return (volume / 100000000).toFixed(2) + '亿'
   }
 }
+export function checkIsFound(code: string) {
+  return !!['15', '16', '51', '52', '58'].find((item) => code.startsWith(item))
+}

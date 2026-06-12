@@ -42,7 +42,6 @@ export const useStockStore = defineStore(
     function setCurrentPeriod(period: string) {
       currentPeriod.value = period
     }
-
     return {
       selfStocks,
       currentStockCode,

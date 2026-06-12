@@ -37,7 +37,7 @@ export function useTradingTime() {
   })
 
   const getPollInterval = computed(() => {
-    return isTradingTime.value ? 5000 : 600000
+    return isTradingTime.value ? 15000 : 600000
   })
 
   const startHolidayCheck = () => {

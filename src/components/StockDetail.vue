@@ -7,7 +7,7 @@
         </h3>
         <div v-if="stockInfo?.change !== undefined" class="mt-1">
           <span :class="stockInfo?.change >= 0 ? 'text-red-500' : 'text-green-500'" class="text-3xl font-bold">
-            {{ stockInfo?.price.toFixed(2) }}
+            {{ formatPrice(stockInfo?.price || 0) }}
           </span>
           <span :class="stockInfo?.change >= 0 ? 'text-red-500' : 'text-green-500'" class="text-xl ml-4"> {{
             stockInfo?.change >= 0 ? '+' : '' }}{{ stockInfo?.change.toFixed(2) }} ({{ stockInfo?.changePercent >= 0 ?
@@ -31,7 +31,7 @@
       <!-- K线图区域 -->
       <div class="kline-section col-span-1 xl:col-span-2 rounded-lg h-100">
         <div class="w-full">
-          <a-tabs v-model="period" @change="changePeriod">
+          <a-tabs v-model="currentPeriod" :defaultActiveKey="currentPeriod" @change="changePeriod">
             <a-tab-pane key="time" type="default" size="small" tab="分时"> </a-tab-pane>
             <a-tab-pane key="fiveDay" type="default" size="small" tab="5日涨幅"> </a-tab-pane>
             <a-tab-pane key="day" type="default" size="small" tab="日K"> </a-tab-pane>
@@ -39,7 +39,7 @@
             <a-tab-pane key="month" type="default" size="small" tab="月K"> </a-tab-pane>
           </a-tabs>
         </div>
-        <TimeChart v-if="period === 'time' || period === 'fiveDay'" :data="klineData || []" />
+        <TimeChart v-if="currentPeriod === 'time' || currentPeriod === 'fiveDay'" :data="klineData || []" />
         <v-chart v-else :option="option" class="kline-chart !h-80 rounded" autoresize />
       </div>
       <!-- 盘口数据 -->
@@ -68,10 +68,10 @@
           </div>
         </div>
         <div class="mt-4 grid grid-cols-2 gap-4 text-sm">
-          <div>今开: {{ stockInfo?.open.toFixed(2) }}</div>
-          <div>最高: {{ stockInfo?.high.toFixed(2) }}</div>
-          <div>最低: {{ stockInfo?.low.toFixed(2) }}</div>
-          <div>昨收: {{ stockInfo?.preClose.toFixed(2) }}</div>
+          <div>今开: {{ formatPrice(stockInfo?.open || 0) }}</div>
+          <div>最高: {{ formatPrice(stockInfo?.high || 0) }}</div>
+          <div>最低: {{ formatPrice(stockInfo?.low || 0) }}</div>
+          <div>昨收: {{ formatPrice(stockInfo?.preClose || 0) }}</div>
           <div>成交量: {{ (stockInfo?.volume || 0) / 10000 }}万手</div>
           <div>成交额: {{ stockInfo?.amount.toFixed(2) }}亿</div>
           <div>换手率: {{ stockInfo?.turnoverRate.toFixed(2) }}%</div>
@@ -105,6 +105,7 @@
 </template>
 
 <script setup lang="ts">
+import { storeToRefs } from 'pinia'
 import { ref, onMounted, computed, watch, reactive, onUnmounted, nextTick } from 'vue'
 import { StarOutlined, StarFilled } from '@ant-design/icons-vue'
 import TimeChart from './TimeChart.vue'
@@ -114,7 +115,7 @@ import { getStockQuote, getStockDepth, operateSelfStock, type StockQuote, type D
 import { useStockStore } from '@/store/stock'
 import { useUserStore } from '@/store/user'
 import axios from '@/utils/request'
-import { formatVolume as formatVolumeUtil } from '@/utils/index'
+import { formatVolume as formatVolumeUtil, checkIsFound } from '@/utils/index'
 import { message } from 'ant-design-vue'
 import { useTheme, useDark } from '@/hooks/useTheme'
 import { useTradingTime } from '@/hooks/useTradingTime'
@@ -129,7 +130,7 @@ const userStore = useUserStore()
 const stockInfo = ref<StockQuote>()
 const depthData = ref<DepthData>()
 const klineData = ref<KlineItem[]>()
-const period = ref(stockStore.currentPeriod)
+const { currentPeriod } = storeToRefs(stockStore)
 const currentCode = computed(() => stockStore.currentStockCode)
 const tradeModalVisible = ref(false)
 const tradeType = ref<'buy' | 'sell'>('buy')
@@ -137,16 +138,16 @@ const tradeForm = ref({
   quantity: 100,
   price: 0,
 })
-watch(() => stockStore.currentPeriod, (p) => {
-  period.value = p
-})
 const pollTimer = ref<number | null>(null)
-const isPooTime = computed(() => period.value === 'time')
+const isPooTime = computed(() => currentPeriod.value === 'time')
 const formatVolume = (vol: number) => {
   const absVol = Math.abs(vol || 0)
   return formatVolumeUtil(absVol)
 }
-
+const formatPrice = (price: number, decimal = 2) => {
+  if (checkIsFound(currentCode.value)) return price.toFixed(3)
+  return price.toFixed(decimal)
+}
 const startPolling = () => {
   if (pollTimer.value) {
     clearInterval(pollTimer.value)
@@ -219,8 +220,9 @@ const option = reactive<EChartsOption>({
     {
       scale: true,
       splitArea: {
-        show: true,
+        show: false,
       },
+      splitNumber: 2,
     },
     {
       scale: true,
@@ -276,12 +278,12 @@ const fetchData = async () => {
   // console.log(depthData.value);
 
   let kline
-  if (period.value === 'fiveDay') {
+  if (currentPeriod.value === 'fiveDay') {
     kline = await getStockFiveDayTimeKline(currentCode.value)
   } else if (isPooTime.value) {
     kline = await getStockTimeKline(currentCode.value)
   } else {
-    kline = await getStockKline(currentCode.value, period.value)
+    kline = await getStockKline(currentCode.value, currentPeriod.value)
   }
   klineData.value = kline as unknown as KlineItem[]
   const dataMap: Record<string, KlineItem[]> = {
@@ -291,8 +293,8 @@ const fetchData = async () => {
     week: (kline as unknown as KlineItem[]).slice(-300),
     month: (kline as unknown as KlineItem[]).slice(-100),
   }
-  if (!isPooTime.value && period.value !== 'fiveDay') {
-    updateKlineChart(dataMap[period.value])
+  if (!isPooTime.value && currentPeriod.value !== 'fiveDay') {
+    updateKlineChart(dataMap[currentPeriod.value])
   }
 }
 
@@ -312,12 +314,12 @@ const updateKlineChart = (data: KlineItem[]) => {
     ; (option.series as any)[1].data = volumes
   const dataLen = dates.length
   let minSpan: number
-  if (period.value === 'day') {
+  if (currentPeriod.value === 'day') {
     minSpan = Math.max(5, Math.min(20, Math.floor(dataLen * 0.01)))
   } else {
     const isLargeData = dataLen > 200
     const isMediumData = dataLen > 100
-    if (period.value === 'week') {
+    if (currentPeriod.value === 'week') {
       minSpan = isLargeData ? Math.max(5, Math.floor(dataLen * 0.01)) : isMediumData ? 20 : 40
     } else {
       minSpan = isLargeData ? Math.max(5, Math.floor(dataLen * 0.01)) : isMediumData ? 30 : 60
@@ -400,7 +402,7 @@ watch(() => stockStore.currentStockCode, (newVal) => {
 
 onMounted(() => {
   fetchData()
-  if (period.value === 'time') {
+  if (currentPeriod.value === 'time') {
     startPolling()
   }
 })

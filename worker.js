@@ -790,80 +790,112 @@ export default {
       }
 
       // ==============================================
-      // 8. 获取基金成分股列表 匹配接口: GET /stock/holdings?code=xxx
+      // 8. 获取基金/指数成分股列表 匹配接口: GET /stock/holdings?code=xxx
       // ==============================================
       if (path === '/stock/holdings' && method === 'GET') {
         const code = url.searchParams.get('code') || ''
-        if (!/^\d{6}$/.test(code)) return json(null, 400, '请输入有效的6位基金代码')
+        if (!/^\d{6}$/.test(code)) return json(null, 400, '请输入有效的6位代码')
 
-        // 判断是否为基金代码
         const prefix = code.substring(0, 2)
-        if (!['00', '15', '16', '51', '52', '58'].includes(prefix)) {
-          return json(null, 400, '该接口仅支持基金代码')
+        const fundPrefixes = ['00', '15', '16', '51', '52', '58']
+        const indexPrefixes = ['000', '399']
+
+        if (!fundPrefixes.includes(prefix) && !indexPrefixes.includes(code.substring(0, 3))) {
+          return json(null, 400, '该接口仅支持基金或指数代码')
         }
 
+        const isFund = fundPrefixes.includes(prefix)
+
         try {
-          const year = new Date().getFullYear()
-          const quarter = Math.ceil((new Date().getMonth() + 1) / 3)
+          if (isFund) {
+            const year = new Date().getFullYear()
+            const quarter = Math.ceil((new Date().getMonth() + 1) / 3)
 
-          // 从东方财富获取基金十大持仓数据
-          const res = await fetch(`https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc&code=${code}&topline=10&year=${year}&month=&rt=0.${Date.now()}`, {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-              Referer: `https://fundf10.eastmoney.com/ccmx_${code}.html`,
-            },
-          })
+            const res = await fetch(`https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc&code=${code}&topline=10&year=${year}&month=&rt=0.${Date.now()}`, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                Referer: `https://fundf10.eastmoney.com/ccmx_${code}.html`,
+              },
+            })
 
-          const text = await res.text()
-          const holdings = []
-          console.log(text, quarter, 'text')
-          // 按 <tr>...</tr> 分割每一行数据
-          const rowMatches = text.match(/<tr[\s\S]*?<\/tr>/g) || []
+            const text = await res.text()
+            const holdings = []
+            const rowMatches = text.match(/<tr[\s\S]*?<\/tr>/g) || []
 
-          for (const row of rowMatches) {
-            // 跳过表头行（包含 th 或特定文字）
-            if (row.includes('<th') || row.includes('股票代码') || row.includes('股票名称')) continue
+            for (const row of rowMatches) {
+              if (row.includes('<th') || row.includes('股票代码') || row.includes('股票名称')) continue
 
-            // 提取所有 <td>...</td>
-            const tdMatches = row.match(/<td[\s\S]*?<\/td>/g) || []
-            if (tdMatches.length < 7) continue
+              const tdMatches = row.match(/<td[\s\S]*?<\/td>/g) || []
+              if (tdMatches.length < 7) continue
 
-            // 提取股票代码（第2个td）
-            const codeHtml = tdMatches[1] || ''
-            const codeMatch = codeHtml.match(/>(\d{6})</)
-            const stockCode = codeMatch ? codeMatch[1] : ''
+              const codeHtml = tdMatches[1] || ''
+              const codeMatch = codeHtml.match(/>(\d{6})</)
+              const stockCode = codeMatch ? codeMatch[1] : ''
 
-            // 提取股票名称（第3个td，class='tol'）
-            const nameHtml = tdMatches[2] || ''
-            const nameMatch = nameHtml.match(/>([^<]+)</)
-            const stockName = nameMatch ? nameMatch[1].trim() : ''
+              const nameHtml = tdMatches[2] || ''
+              const nameMatch = nameHtml.match(/>([^<]+)</)
+              const stockName = nameMatch ? nameMatch[1].trim() : ''
 
-            // 提取占比（第7个td，class='tor'，格式如 15.29%）
-            const propHtml = tdMatches[6] || ''
-            const propMatch = propHtml.match(/([\d.]+)%/)
-            const proportion = propMatch ? propMatch[1] : '0'
+              const propHtml = tdMatches[6] || ''
+              const propMatch = propHtml.match(/([\d.]+)%/)
+              const proportion = propMatch ? propMatch[1] : '0'
 
-            if (stockCode && stockName && proportion !== '0') {
-              holdings.push({
-                stockCode,
-                name: stockName,
-                proportion,
-              })
+              if (stockCode && stockName && proportion !== '0') {
+                holdings.push({
+                  stockCode,
+                  name: stockName,
+                  proportion,
+                })
+              }
+
+              if (holdings.length >= 10) break
             }
 
-            if (holdings.length >= 10) break
-          }
+            return json({
+              fundCode: code,
+              fundName: '',
+              year,
+              quarter,
+              holdings,
+            })
+          } else {
+            const res = await fetch(`https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=50&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f57&fs=b:${code}&fields=f12,f14,f57,f58,f62,f186,f66,f69,f71,f73,f74,f75,f76,f77,f78,f79,f80,f81,f82,f83,f84,f85,f86`, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                Referer: `https://quote.eastmoney.com/center/gridlist.html#index_component`,
+              },
+            })
 
-          return json({
-            fundCode: code,
-            fundName: '',
-            year,
-            quarter,
-            holdings,
-          })
+            const data = await res.json()
+            const holdings = []
+
+            if (data && data.data && data.data.diff) {
+              for (const item of data.data.diff.slice(0, 50)) {
+                const stockCode = item.f12 || ''
+                const stockName = item.f14 || ''
+                const proportion = (item.f62 / 100).toFixed(2)
+
+                if (stockCode && stockName) {
+                  holdings.push({
+                    stockCode,
+                    name: stockName,
+                    proportion,
+                  })
+                }
+              }
+            }
+
+            return json({
+              fundCode: code,
+              fundName: '',
+              year: new Date().getFullYear(),
+              quarter: Math.ceil((new Date().getMonth() + 1) / 3),
+              holdings,
+            })
+          }
         } catch (e) {
-          console.error('获取基金持仓数据失败:', e)
-          return json([], 500, `获取基金持仓数据失败: ${e.message}`)
+          console.error('获取持仓数据失败:', e)
+          return json([], 500, `获取持仓数据失败: ${e.message}`)
         }
       }
 
