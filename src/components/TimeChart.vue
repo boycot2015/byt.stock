@@ -1,12 +1,29 @@
 <template>
-  <v-chart ref="chartRef" :option="chartOption" class="kline-chart rounded" :class="className || '!h-80'" autoresize />
+  <div class="time-chart-wrapper">
+    <div v-if="!simple && stats.maxPricePercent !== 0"
+      class="chart-stats-bar flex justify-between items-center p-1 text-xs bg-[var(--color-bg)] border-b border-[var(--border-color)] mt-[-14px]">
+      <div class="flex items-center gap-4">
+        <span class="text-gray-500">
+          最高: <span class="text-red-500 font-medium">{{ stats.maxPricePercent.toFixed(2) }}%</span>
+          <span class="text-gray-400 ml-1">({{ stats.maxPrice.toFixed(isFound ? 3 : 2) }})</span>
+        </span>
+        <span class="text-gray-500">
+          最低: <span class="text-green-500 font-medium">{{ stats.minPricePercent.toFixed(2) }}%</span>
+          <span class="text-gray-400 ml-1">({{ stats.minPrice.toFixed(isFound ? 3 : 2) }})</span>
+        </span>
+      </div>
+    </div>
+    <v-chart ref="chartRef" :option="chartOption" class="kline-chart rounded" :class="className || '!h-80'"
+      autoresize />
+  </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, shallowRef } from 'vue'
+import { ref, watch, nextTick, shallowRef, computed } from 'vue'
 import VChart from 'vue-echarts'
 import type { ECharts, EChartsOption } from 'echarts'
 import { useChart } from '@/hooks/useChart'
+import { checkIsFound } from '@/utils/index'
 
 const { getCommonOption } = useChart()
 
@@ -22,10 +39,23 @@ const props = defineProps<{
   data: TimeDataItem[] | any[]
   className?: string
   simple?: boolean
+  code?: string
 }>()
 const mode = ref<'simple' | 'default'>(props.simple ? 'simple' : 'default')
 const chartRef = ref<InstanceType<typeof VChart>>()
 const chartOption = shallowRef<any>({})
+
+const stats = ref({
+  maxPricePercent: 0,
+  minPricePercent: 0,
+  maxPrice: 0,
+  minPrice: 0,
+})
+
+const isFound = computed(() => {
+  if (!props.data?.length) return false
+  return checkIsFound(props.code || '')
+})
 
 let lastDataLength = 0
 
@@ -198,7 +228,19 @@ function generateTimeOption(data: TimeDataItem[]) {
     generateMinuteData(session2Start, session2End)
   }
 
-  const lastValidPricePercent = pricePercents.filter((p): p is number => p !== null).pop() || 0
+  const validPricePercents = pricePercents.filter((p): p is number => p !== null)
+  const validPrices = prices.filter((p): p is number => p !== null)
+  const lastValidPricePercent = validPricePercents.length > 0 ? validPricePercents[validPricePercents.length - 1] : 0
+
+  if (validPricePercents.length > 0 && validPrices.length > 0) {
+    stats.value = {
+      maxPricePercent: Math.max(...validPricePercents),
+      minPricePercent: Math.min(...validPricePercents),
+      maxPrice: Math.max(...validPrices),
+      minPrice: Math.min(...validPrices),
+    }
+  }
+
   const xAxis = [
     {
       type: 'time',

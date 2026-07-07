@@ -55,7 +55,7 @@
         <span class="text-sm text-gray-500">已选 {{ selectedCodes.length }} 项</span>
       </div>
       <div class="flex items-center gap-2">
-        <a-button size="small" @click="handleBatchDelete">删除</a-button>
+        <a-button size="small" :disabled="!selectedCodes.length" @click="handleBatchDelete">删除</a-button>
       </div>
     </div>
 
@@ -77,16 +77,16 @@
         <div class="flex-1 min-w-0">
           <div class="flex items-center">
             <span class="font-medium mr-2">{{ item.name }}</span>
-            <span class="text-sm text-gray-500">{{ item.code }}</span>
+            <span v-if="!editMode" class="text-sm text-gray-500">{{ item.code }}</span>
           </div>
-          <div class="text-sm text-gray-500 mt-1">成交量: {{ formatVolume(item.volume) }}手</div>
+          <div v-if="!editMode" class="text-sm text-gray-500 mt-1">成交量: {{ formatVolume(item.volume) }}手</div>
         </div>
 
         <div class="text-right">
           <span :class="item.change >= 0 ? 'text-red-500' : 'text-green-500'" class="text-lg font-medium">
             {{ item.price?.toFixed(checkIsFound(item.code) ? 3 : 2) || '-' }}
           </span>
-          <div class="mt-1">
+          <div v-if="!editMode" class="mt-1">
             <span :class="item.change >= 0 ? 'text-red-500' : 'text-green-500'" class="text-sm">
               {{ item.change >= 0 ? '+' : '' }}{{ item.change.toFixed(2) }}
             </span>

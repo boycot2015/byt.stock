@@ -39,7 +39,7 @@
             <a-tab-pane key="month" type="default" size="small" tab="月K"> </a-tab-pane>
           </a-tabs>
         </div>
-        <TimeChart v-if="currentPeriod === 'time' || currentPeriod === 'fiveDay'" :data="klineData || []" />
+        <TimeChart v-if="currentPeriod === 'time' || currentPeriod === 'fiveDay'" :data="klineData || []" :code="currentCode" />
         <v-chart v-else :option="option" class="kline-chart !h-80 rounded" autoresize />
       </div>
       <!-- 盘口数据 -->
