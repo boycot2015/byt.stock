@@ -41,6 +41,9 @@ export interface KlineItem {
   low: number
   close: number
   volume: number
+  ma5?: number | null
+  ma10?: number | null
+  ma20?: number | null
 }
 
 export interface DepthData {

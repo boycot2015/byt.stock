@@ -39,7 +39,8 @@
             <a-tab-pane key="month" type="default" size="small" tab="月K"> </a-tab-pane>
           </a-tabs>
         </div>
-        <TimeChart v-if="currentPeriod === 'time' || currentPeriod === 'fiveDay'" :data="klineData || []" :code="currentCode" />
+        <TimeChart v-if="currentPeriod === 'time' || currentPeriod === 'fiveDay'" :data="klineData || []"
+          :code="currentCode" />
         <v-chart v-else :option="option" class="kline-chart !h-80 rounded" autoresize />
       </div>
       <!-- 盘口数据 -->
@@ -171,15 +172,17 @@ const option = reactive<EChartsOption>({
     },
   },
   legend: {
-    show: false,
-    // data: ['K线', '成交量']
+    show: true,
+    data: ['MA5', 'MA10', 'MA20'],
+    top: '0%',
+    textStyle: { fontSize: 10 },
   },
   grid: [
     {
-      top: '0%',
+      top: '8%',
       left: '0%',
       right: '10%',
-      height: '60%',
+      height: '55%',
     },
     {
       left: '5%',
@@ -257,6 +260,30 @@ const option = reactive<EChartsOption>({
       },
     },
     {
+      name: 'MA5',
+      type: 'line',
+      data: [] as any[],
+      smooth: true,
+      lineStyle: { width: 1, color: '#FF6B6B' },
+      symbol: 'none',
+    },
+    {
+      name: 'MA10',
+      type: 'line',
+      data: [] as any[],
+      smooth: true,
+      lineStyle: { width: 1, color: '#FFD93D' },
+      symbol: 'none',
+    },
+    {
+      name: 'MA20',
+      type: 'line',
+      data: [] as any[],
+      smooth: true,
+      lineStyle: { width: 1, color: '#6BCB77' },
+      symbol: 'none',
+    },
+    {
       name: '成交量',
       type: 'bar',
       xAxisIndex: 1,
@@ -298,20 +325,47 @@ const fetchData = async () => {
   }
 }
 
+const calculateMA = (data: KlineItem[], days: number): (number | null)[] => {
+  const result: (number | null)[] = []
+  const closes = data.map(item => item.close)
+  for (let i = 0; i < data.length; i++) {
+    if (i < days - 1) {
+      result.push(null)
+    } else {
+      let sum = 0
+      for (let j = i - days + 1; j <= i; j++) {
+        sum += closes[j]
+      }
+      result.push(Number(formatPrice(Number(sum / days))))
+    }
+  }
+  return result
+}
+
 const updateKlineChart = (data: KlineItem[]) => {
   const dates: string[] = []
   const klineValues: number[][] = []
   const volumes: number[] = []
+
   data.forEach((item) => {
     dates.push(item.time)
     klineValues.push([item.open, item.close, item.low, item.high])
     volumes.push(item.volume)
   })
+
+  const ma5Values = calculateMA(data, 5)
+  const ma10Values = calculateMA(data, 10)
+  const ma20Values = calculateMA(data, 20)
+
     ; (option.xAxis as any)[0].data = dates
     ; (option.xAxis as any)[1].data = dates
     ; (option.series as any)[0].type = 'candlestick'
     ; (option.series as any)[0].data = klineValues
-    ; (option.series as any)[1].data = volumes
+    ; (option.series as any)[1].data = ma5Values
+    ; (option.series as any)[2].data = ma10Values
+    ; (option.series as any)[3].data = ma20Values
+    ; (option.series as any)[4].data = volumes
+
   const dataLen = dates.length
   let minSpan: number
   if (currentPeriod.value === 'day') {
@@ -327,11 +381,29 @@ const updateKlineChart = (data: KlineItem[]) => {
   }
   ; (option.dataZoom as any)[0].minSpan = minSpan
   // 移除分时相关的系列和配置
-  if ((option.series as any).length > 2) {
-    ; (option.series as any).splice(2, 2)
+  if ((option.series as any).length > 5) {
+    ; (option.series as any).splice(5, (option.series as any).length - 5)
   }
-  if (Array.isArray(option.yAxis) && option.yAxis[0]) {
-    delete (option.yAxis[0] as any).markLine
+  // 完全重置Y轴配置，确保K线图使用正确的数值轴
+  if (Array.isArray(option.yAxis)) {
+    option.yAxis[0] = {
+      type: 'value',
+      scale: true,
+      splitArea: {
+        show: false,
+      },
+      splitNumber: 2,
+    }
+    option.yAxis[1] = {
+      type: 'value',
+      scale: true,
+      gridIndex: 1,
+      splitNumber: 2,
+      axisLabel: { show: false },
+      axisLine: { show: false },
+      axisTick: { show: false },
+      splitLine: { show: false },
+    }
   }
 }
 

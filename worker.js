@@ -576,12 +576,18 @@ export default {
             return json(null, 400, '无效的周期参数，支持：day/week/month/1min/5min/15min/30min/60min')
         }
 
-        const res = await fetch(`https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${market}.${code}&ut=7e18b5514514e48b4864a7a89e73e62d&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57&klt=${periodId}&fqt=${adjust === 'qfq' ? 1 : adjust === 'hfq' ? 2 : 0}&beg=0&end=20500101&lmt=${count}`)
+        const res = await fetch(`https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${market}.${code}&ut=7e18b5514514e48b4864a7a89e73e62d&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61%2Cf62%2Cf63&klt=${periodId}&fqt=${adjust === 'qfq' ? 1 : adjust === 'hfq' ? 2 : 0}&beg=0&end=20500101&lmt=${count}`)
         const result = await res.json()
         const klines = result?.data?.klines || []
 
         const data = klines.map((line) => {
-          const [time, open, close, high, low, volume, amount] = line.split(',')
+          const parts = line.split(',')
+          const [time, open, close, high, low, volume, amount] = parts.slice(0, 7)
+          // 均线数据：f58=5日均线, f59=10日均线, f60=20日均线
+          const ma5 = parts[7] ? parseFloat(parts[7]) : null
+          const ma10 = parts[8] ? parseFloat(parts[8]) : null
+          const ma20 = parts[9] ? parseFloat(parts[9]) : null
+
           return {
             time: time.includes(' ') ? time.split(' ')[0] : time,
             open: parseFloat(open),
@@ -589,6 +595,9 @@ export default {
             low: parseFloat(low),
             close: parseFloat(close),
             volume: parseInt(volume),
+            ma5,
+            ma10,
+            ma20,
           }
         })
         return json(data)
