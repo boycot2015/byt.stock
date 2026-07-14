@@ -1,7 +1,7 @@
 <template>
   <div class="time-chart-wrapper">
     <div v-if="!simple && stats.maxPricePercent !== 0"
-      class="chart-stats-bar flex justify-between items-center p-1 text-xs bg-[var(--color-bg)] border-b border-[var(--border-color)] mt-[-14px]">
+      class="chart-stats-bar flex justify-between items-center p-1 text-xs bg-[var(--color-bg)] border-b border-[var(--border-color)] mt-1">
       <div class="flex items-center gap-4">
         <span class="text-gray-500">
           最高: <span class="text-red-500 font-medium">{{ stats.maxPricePercent.toFixed(2) }}%</span>
@@ -279,6 +279,11 @@ function generateTimeOption(data: TimeDataItem[]) {
       axisTick: { show: false },
       splitLine: { show: false },
       breaks: breaks.length > 0 ? breaks : undefined,
+      axisPointer: {
+        label: {
+          show: false,
+        },
+      },
       breakArea: {
         show: false,
         expandOnClick: false,
@@ -307,18 +312,27 @@ function generateTimeOption(data: TimeDataItem[]) {
         color: '#666',
       },
       splitLine: { show: false },
-      markLine: {
-        silent: true,
-        data: [{ yAxis: lastValidPricePercent }],
-        lineStyle: { color: '#999', type: 'dashed', width: 1 },
+      axisPointer: {
+        show: true,
+        snap: true,
+        lineStyle: {
+          type: 'dashed',
+          color: '#999',
+          width: 1,
+        },
         label: {
           show: true,
-          position: 'end',
-          formatter: (params: any) => `${params.value.toFixed(2)}%`,
-          fontSize: 10,
-          color: '#666',
+          position: 'left',
+          formatter: (params: any) => {
+            const value = params.value
+            return `${value.toFixed(2)}%`
+          },
+          padding: [2, 6],
+          fontSize: 11,
+          fontWeight: 'bold',
+          color: '#fff',
         },
-      },
+      } as any,
     },
     {
       scale: true,
@@ -328,6 +342,27 @@ function generateTimeOption(data: TimeDataItem[]) {
       axisLine: { show: false },
       axisTick: { show: false },
       splitLine: { show: false },
+      axisPointer: {
+        show: true,
+        snap: true,
+        lineStyle: {
+          type: 'dashed',
+          color: '#999',
+          width: 1,
+        },
+        label: {
+          show: true,
+          position: 'left',
+          formatter: (params: any) => {
+            const value = params.value
+            return `${value.toFixed(0)}`
+          },
+          padding: [2, 6],
+          fontSize: 11,
+          fontWeight: 'bold',
+          color: '#fff',
+        },
+      } as any,
     },
   ]
   const series = [{
@@ -337,6 +372,21 @@ function generateTimeOption(data: TimeDataItem[]) {
     lineStyle: { width: 1 },
     symbol: 'none',
     smooth: false,
+    markLine: {
+      silent: true,
+      symbol: 'none',
+      data: [{
+        yAxis: lastValidPricePercent,
+      }],
+      lineStyle: {
+        type: 'dashed',
+        width: 2,
+        color: lastValidPricePercent > 0 ? '#ef232a' : lastValidPricePercent < 0 ? '#14b936' : '#999',
+      },
+      label: {
+        show: false,
+      },
+    },
   },
   {
     name: '成交量',
@@ -365,16 +415,28 @@ function generateTimeOption(data: TimeDataItem[]) {
   }
   return {
     ...getCommonOption(),
+    axisPointer: {
+      link: [{ xAxisIndex: 'all' }],
+    },
     tooltip: {
       trigger: 'axis',
-      axisPointer: { type: 'cross' },
+      axisPointer: {
+        type: 'cross',
+        lineStyle: {
+          type: 'dashed',
+          width: 1,
+          color: '#999',
+        },
+      },
       formatter: (params: any) => {
         let result = ''
         params.forEach((item: any) => {
           const time = item.value[0]
           const value = item.value[1]
           let color = '#999'
-
+          if (result.includes(item.seriesName)) {
+            return result
+          }
           if (item.seriesName === '成交量') {
             const volumeValue = timeToVolumeMap.get(time)
             if (volumeValue !== null && volumeValue !== undefined) {

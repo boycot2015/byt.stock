@@ -39,9 +39,50 @@
             <a-tab-pane key="month" type="default" size="small" tab="月K"> </a-tab-pane>
           </a-tabs>
         </div>
+        <!-- K线hover信息展示 -->
+        <div v-if="currentPeriod !== 'time' && currentPeriod !== 'fiveDay' && hoverKlineData"
+          class="kline-info-bar flex flex-wrap gap-2 px-2 mt-1 text-sm bg-gray-50 dark:bg-gray-800 rounded-t">
+          <!-- <div v-if="hoverKlineData">
+            <span class="text-gray-500">{{ hoverKlineData.time }}</span>
+          </div> -->
+          <div>
+            <span class="text-gray-500">开:</span>
+            <span>{{ hoverKlineData.open.toFixed(2) }}</span>
+          </div>
+          <div>
+            <span class="text-gray-500">收:</span>
+            <span :class="hoverKlineData.close >= hoverKlineData.open ? 'text-red-500' : 'text-green-500'">{{
+              hoverKlineData.close.toFixed(2)
+            }}</span>
+          </div>
+          <div>
+            <span class="text-gray-500">高:</span>
+            <span class="text-red-500">{{ hoverKlineData.high.toFixed(2) }}</span>
+          </div>
+          <div>
+            <span class="text-gray-500">低:</span>
+            <span class="text-green-500">{{ hoverKlineData.low.toFixed(2) }}</span>
+          </div>
+          <div v-if="hoverKlineData.changeAmount !== null">
+            <span class="text-gray-500">额:</span>
+            <span :class="hoverKlineData.changeAmount >= 0 ? 'text-red-500' : 'text-green-500'">{{
+              hoverKlineData.changeAmount >= 0 ? '+' : ''
+              }}{{ hoverKlineData.changeAmount.toFixed(2) }}</span>
+          </div>
+          <div v-if="hoverKlineData && hoverKlineData.changePercent !== null">
+            <span class="text-gray-500">幅:</span>
+            <span :class="(hoverKlineData.changePercent || 0) >= 0 ? 'text-red-500' : 'text-green-500'">{{
+              (hoverKlineData.changePercent || 0) >= 0 ? '+' : ''
+              }}{{ (hoverKlineData.changePercent || 0).toFixed(2) }}%</span>
+          </div>
+          <div>
+            <span class="text-gray-500">量:</span>
+            <span>{{ formatVolume(hoverKlineData.volume) }}</span>
+          </div>
+        </div>
         <TimeChart v-if="currentPeriod === 'time' || currentPeriod === 'fiveDay'" :data="klineData || []"
           :code="currentCode" />
-        <v-chart v-else :option="option" class="kline-chart !h-80 rounded" autoresize />
+        <v-chart v-else ref="klineChartRef" :option="option" class="kline-chart !h-80 rounded" autoresize />
       </div>
       <!-- 盘口数据 -->
       <div class="depth-section p-2 rounded-lg">
@@ -135,6 +176,23 @@ const { currentPeriod } = storeToRefs(stockStore)
 const currentCode = computed(() => stockStore.currentStockCode)
 const tradeModalVisible = ref(false)
 const tradeType = ref<'buy' | 'sell'>('buy')
+// K线图hover数据
+const klineChartRef = ref()
+interface HoverKlineData {
+  time: string
+  open: number
+  close: number
+  high: number
+  low: number
+  volume: number
+  changeAmount: number | null
+  changePercent: number | null
+}
+const hoverKlineData = ref<HoverKlineData | null>(null)
+// 存储所有K线数据，用于tooltip计算
+const allKlineValues = ref<number[][]>([])
+// 存储日期列表，用于tooltip
+const klineDates = ref<string[]>([])
 const tradeForm = ref({
   quantity: 100,
   price: 0,
@@ -162,6 +220,71 @@ const isSelfStock = computed(() => {
   return stockStore.selfStocks.some((item) => item.code === currentCode.value)
 })
 
+// 当前K线数据引用
+let currentKlineData: KlineItem[] = []
+
+// K线图tooltip formatter
+const tooltipFormatter = (params: any): string => {
+  let klineData = params.find((p: any) => p.seriesType === 'candlestick')
+  klineData = { ...klineData, ...hoverKlineData.value }
+  const barData = params.find((p: any) => p.seriesType === 'bar' && p.seriesName === '成交量')
+  if (!klineData && !barData) return ''
+
+  const axisValue = klineData?.time || barData?.axisValue || ''
+  const dataIndex = klineData?.dataIndex ?? barData?.dataIndex ?? 0
+
+  let open = 0, close = 0, low = 0, high = 0, volume = 0
+
+  if (klineData) {
+    open = klineData.open
+    close = klineData.close
+    low = klineData.low
+    high = klineData.high
+  }
+
+  if (barData) {
+    volume = Array.isArray(barData.data) ? barData.data[1] ?? barData.data[0] : barData.data
+  } else if (dataIndex !== undefined && currentKlineData[dataIndex]) {
+    volume = currentKlineData[dataIndex].volume
+  }
+
+  // 前一根K线的收盘价（第一根K线暂时不显示涨跌幅）
+  let changeAmount: number | null = null
+  let changePercent: number | null = null
+  let isUp = true
+
+  if (dataIndex !== undefined && dataIndex > 0 && currentKlineData[dataIndex - 1]) {
+    const prevClose = currentKlineData[dataIndex - 1].close
+    const currentClose = currentKlineData[dataIndex]?.close ?? close
+    changeAmount = currentClose - prevClose
+    changePercent = prevClose !== 0 ? ((currentClose - prevClose) / prevClose) * 100 : 0
+    isUp = changeAmount >= 0
+  }
+
+  const colorStyle = isUp ? 'color: #ef232a' : 'color: #14b936'
+  const sign = isUp ? '+' : ''
+
+  let changeHtml = ''
+  if (changeAmount !== null && changePercent !== null) {
+    changeHtml = `
+      <div>涨跌额: <span style="${colorStyle}">${sign}${changeAmount.toFixed(2)}</span></div>
+      <div>涨跌幅: <span style="${colorStyle}">${sign}${changePercent.toFixed(2)}%</span></div>
+    `
+  }
+
+  return `
+    <div style="padding: 8px;">
+      <div style="margin-bottom: 4px;">${axisValue}</div>
+      ${klineData ? `<div>开盘: <span style="${colorStyle}">${open.toFixed(2)}</span></div>` : ''}
+      ${klineData ? `<div>收盘: <span style="${colorStyle}">${close.toFixed(2)}</span></div>` : ''}
+      ${klineData ? `<div>最高: <span style="${colorStyle}">${high.toFixed(2)}</span></div>` : ''}
+      ${klineData ? `<div>最低: <span style="${colorStyle}">${low.toFixed(2)}</span></div>` : ''}
+      ${changeHtml}
+      <div>成交量: <span style="${colorStyle}">${formatVolume(volume)}</span></div>
+    </div>
+  `
+}
+
 // K线图配置
 const option = reactive<EChartsOption>({
   ...getCommonOption(),
@@ -169,6 +292,43 @@ const option = reactive<EChartsOption>({
     trigger: 'axis',
     axisPointer: {
       type: 'cross',
+    },
+    formatter: (params: any) => {
+      // 当tooltip显示时，同步更新顶部信息栏
+      // 处理K线或成交量系列的hover
+      const klineParam = params.find((p: any) => p.seriesType === 'candlestick')
+      const barParam = params.find((p: any) => p.seriesType === 'bar' && p.seriesName === '成交量')
+      const targetParam = klineParam || barParam
+
+      if (targetParam && currentKlineData.length > 0) {
+        const dataIndex = targetParam.dataIndex
+        const klineItem = currentKlineData[dataIndex]
+        if (klineItem) {
+          let changeAmount: number | null = null
+          let changePercent: number | null = null
+
+          // 相对于前一根K线的收盘价计算
+          if (dataIndex > 0 && currentKlineData[dataIndex - 1]) {
+            const prevClose = currentKlineData[dataIndex - 1].close
+            changeAmount = klineItem.close - prevClose
+            changePercent = prevClose ? ((klineItem.close - prevClose) / prevClose) * 100 : 0
+          }
+
+          hoverKlineData.value = {
+            time: klineItem.time,
+            open: klineItem.open,
+            close: klineItem.close,
+            high: klineItem.high,
+            low: klineItem.low,
+            volume: klineItem.volume,
+            changeAmount,
+            changePercent,
+          }
+        }
+      }
+
+      // 调用原来的tooltip formatter
+      return tooltipFormatter(params)
     },
   },
   legend: {
@@ -353,6 +513,11 @@ const updateKlineChart = (data: KlineItem[]) => {
     volumes.push(item.volume)
   })
 
+  // 存储K线数据用于tooltip计算
+  allKlineValues.value = klineValues
+  klineDates.value = dates
+  currentKlineData = data
+
   const ma5Values = calculateMA(data, 5)
   const ma10Values = calculateMA(data, 10)
   const ma20Values = calculateMA(data, 20)
@@ -405,6 +570,51 @@ const updateKlineChart = (data: KlineItem[]) => {
       splitLine: { show: false },
     }
   }
+
+  // 显示最新K线数据
+  const showLatestKlineData = () => {
+    if (data.length > 0) {
+      const latestIndex = data.length - 1
+      const klineItem = data[latestIndex]
+      let changeAmount: number | null = null
+      let changePercent: number | null = null
+
+      // 相对于前一根K线的收盘价计算
+      if (latestIndex > 0 && data[latestIndex - 1]) {
+        const prevClose = data[latestIndex - 1].close
+        changeAmount = klineItem.close - prevClose
+        changePercent = prevClose ? ((klineItem.close - prevClose) / prevClose) * 100 : 0
+      }
+
+      hoverKlineData.value = {
+        time: klineItem.time,
+        open: klineItem.open,
+        close: klineItem.close,
+        high: klineItem.high,
+        low: klineItem.low,
+        volume: klineItem.volume,
+        changeAmount,
+        changePercent,
+      }
+    }
+  }
+
+  // 默认显示最新K线数据
+  showLatestKlineData()
+
+  // 添加K线图鼠标移出事件监听，恢复显示最新K线数据
+  nextTick(() => {
+    const chartInstance = klineChartRef.value?.chart
+    if (!chartInstance) return
+
+    // 移除旧的事件监听避免重复绑定
+    chartInstance.off('mouseout')
+
+    // 监听鼠标移出事件，恢复显示最新K线数据
+    chartInstance.on('mouseout', () => {
+      showLatestKlineData()
+    })
+  })
 }
 
 const changePeriod = (p: string) => {
@@ -487,3 +697,8 @@ onUnmounted(() => {
   }
 })
 </script>
+<style>
+.ant-tabs-top>.ant-tabs-nav {
+  margin-bottom: 0 !important;
+}
+</style>
