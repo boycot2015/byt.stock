@@ -5,6 +5,7 @@
       :class="{ 'text-blue-600 font-medium': route.name === item.route }" @click="onClick(item)">
       <component :is="item.icon" class="mr-1" /> {{ item.label }}
     </span>
+    <ReloadOutlined class="cursor-pointer text-lg hover:text-blue-600 transition-colors" @click="emit('refresh')" title="刷新数据" />
     <div class="hidden md:block">
       <ThemeSwitch />
     </div>
@@ -37,6 +38,7 @@ import LineChartOutlined from '@ant-design/icons-vue/LineChartOutlined'
 import StarOutlined from '@ant-design/icons-vue/StarOutlined'
 import FileTextOutlined from '@ant-design/icons-vue/FileTextOutlined'
 import UserOutlined from '@ant-design/icons-vue/UserOutlined'
+import ReloadOutlined from '@ant-design/icons-vue/ReloadOutlined'
 import ThemeSwitch from './ThemeSwitch.vue'
 const router = useRouter()
 const route = useRoute()
@@ -61,6 +63,6 @@ defineProps({
   },
 })
 
-// 暴露退出登录事件给父组件
-const emit = defineEmits(['logout'])
+// 暴露事件给父组件
+const emit = defineEmits(['logout', 'refresh'])
 </script>

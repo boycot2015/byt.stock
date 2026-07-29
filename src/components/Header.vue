@@ -5,12 +5,13 @@
         <Search class="!w-full md:w-100 min-w-[260px] flex-1" @select="handleSelectStock" />
         <ThemeSwitch class="md:!hidden" />
       </div>
-      <NavBar @logout="logout" />
+      <NavBar @logout="logout" @refresh="refresh" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { nextTick } from 'vue'
 import router from '@/router'
 import Search from './Search.vue'
 import NavBar from './NavBar.vue'
@@ -26,6 +27,14 @@ const handleSelectStock = (code: string) => {
   stockStore.setCurrentStockCode(code)
   router.push({ name: 'Home', query: { code } })
   scrollToElement('.stock-detail')
+}
+
+const refresh = () => {
+  let currentStockCode = stockStore.currentStockCode
+  stockStore.setCurrentStockCode('399006')
+  nextTick(() => {
+    stockStore.setCurrentStockCode(currentStockCode)
+  })
 }
 
 const logout = () => {
