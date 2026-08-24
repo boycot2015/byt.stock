@@ -1,5 +1,6 @@
 import axios from 'axios'
 const apiURL = import.meta.env.VITE_API_URL
+console.log(apiURL, 'apiURL');
 const request = axios.create({
   baseURL: apiURL,
   timeout: 10000,

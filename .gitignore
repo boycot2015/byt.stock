@@ -23,3 +23,8 @@ dist-ssr
 *.sln
 *.sw?
 .wrangler
+# Tencent Cloud EdgeOne
+.env
+.edgeone/*
+.tef_dist/*
+  

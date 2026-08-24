@@ -59,7 +59,7 @@
       </div>
     </div>
 
-    <div class="stock-list overflow-auto flex flex-col" :style="{ maxHeight: maxHeight }">
+    <div class="stock-list overflow-auto flex flex-col min-h-[400px]" :style="{ maxHeight: maxHeight }">
       <div v-for="(item, index) in sortedStockList" :key="item.code"
         class="stock-item p-3 border-b border-[var(--border-color)] cursor-pointer hover:bg-[var(--hover-bg)] flex items-center gap-3"
         :class="{
@@ -123,6 +123,8 @@
           </template>
         </a-dropdown>
       </div>
+      <Empty v-if="!sortedStockList.length" :containerStyle="{ minHeight: '400px' }" description="暂无自选股，请添加" />
+      <!-- <div v-if="!sortedStockList.length" class="flex flex-col items-center justify-center flex-1 h-full">暂无自选股，请添加</div> -->
     </div>
 
     <a-modal title="添加自选股" :open="visible" width="400px" @cancel="visible = false" @ok="handleAddStock">
@@ -141,6 +143,7 @@ import { message } from 'ant-design-vue'
 import { useRouter } from 'vue-router'
 import { useTradingTime } from '@/hooks/useTradingTime'
 import { useScroll } from '@/hooks/useScroll'
+import Empty from '@/components/Empty.vue'
 import {
   SwapOutlined,
   SettingOutlined,
