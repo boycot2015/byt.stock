@@ -46,7 +46,7 @@ async function blobGet(key, { type } = {}) {
   const store = getBlobStore()
   // TTL 检查（TTL 辅助键也是 JSON 存储：{ exp: 时间戳秒数 }）
   try {
-    const expObj = await store.get(`${key}:__exp`, { type: "json" })
+    const expObj = await store.get(`${key}:__exp`, { type: "json", consistency: "strong" })
     if (expObj && typeof expObj.exp === "number" && Date.now() / 1000 > expObj.exp) {
       await store.delete(key).catch(() => {})
       await store.delete(`${key}:__exp`).catch(() => {})
@@ -55,7 +55,8 @@ async function blobGet(key, { type } = {}) {
   } catch (_) {
     /* ignore */
   }
-  return await store.get(key, { type: "json" })
+  // strong 一致性：走 nocache 域名直读，确保读到最新写入的数据
+  return await store.get(key, { type: "json", consistency: "strong" })
 }
 
 async function blobPut(key, value, { expirationTtl } = {}) {
@@ -68,11 +69,12 @@ async function blobPut(key, value, { expirationTtl } = {}) {
   } else if (value === null || value === undefined) {
     payload = { __null: true }
   }
-  await store.setJSON(key, payload)
+  // no-cache：确保 CDN 不缓存写入后的读请求，避免数据延迟
+  await store.setJSON(key, payload, { cacheControl: "no-cache" })
   // TTL 辅助键（用数字值）
   if (expirationTtl && Number.isFinite(expirationTtl)) {
     const expireAt = Math.floor(Date.now() / 1000) + expirationTtl
-    await store.setJSON(`${key}:__exp`, { exp: expireAt }).catch((e) =>
+    await store.setJSON(`${key}:__exp`, { exp: expireAt }, { cacheControl: "no-cache" }).catch((e) =>
       console.warn(`[blob] ttl put failed for ${key}:`, e?.message),
     )
   }
@@ -593,45 +595,56 @@ export default async function onRequest({ request }) {
       return new TextDecoder('gbk').decode(buffer)
     }
 
-    // 批量获取股票实时行情
+    // 批量获取股票实时行情（单次 HTTP 请求拿全部，延迟最低）
     const batchGetStockQuotes = async (codes) => {
-      const result = []
-      for (const code of codes) {
-        try {
-          const market = isShStock(code) ? 'sh' : 'sz'
-          const res = await fetch(`http://hq.sinajs.cn/list=${market}${code}`, {
-            headers: { Referer: 'https://finance.sina.com.cn' },
+      if (!codes || !codes.length) return []
+
+      // 新浪接口支持逗号分隔一次查多个，用一次 HTTP 请求拿全部数据
+      const list = codes.map((code) => `${isShStock(code) ? 'sh' : 'sz'}${code}`).join(',')
+      try {
+        const res = await fetch(`http://hq.sinajs.cn/list=${list}`, {
+          headers: { Referer: 'https://finance.sina.com.cn' },
+        })
+        const text = await decodeGBK(res)
+        const result = []
+        // 逐行解析 var hq_str_XXXX="...";
+        const lines = text.split('\n')
+        for (const line of lines) {
+          const match = line.match(/var hq_str_(\w+)="([^"]*)"/)
+          if (!match) continue
+          const marketCode = match[1]
+          const code = marketCode.replace(/^(sh|sz)/, '')
+          const arr = match[2].split(',')
+          if (!arr[0]) continue // 空数据跳过
+          const price = parseFloat(arr[3])
+          const preClose = parseFloat(arr[2])
+          const change = price - preClose
+          const changePercent = preClose ? (change / preClose) * 100 : 0
+          result.push({
+            code,
+            name: arr[0],
+            price,
+            change: Number(change.toFixed(2)),
+            changePercent: Number(changePercent.toFixed(2)),
+            volume: parseInt(arr[8]) || 0,
+            amount: parseFloat(arr[9]) || 0,
+            high: parseFloat(arr[4]) || 0,
+            low: parseFloat(arr[5]) || 0,
+            open: parseFloat(arr[1]) || 0,
+            preClose,
+            turnoverRate: parseFloat(arr[10] / 100) || 0,
+            pe: parseFloat(arr[12]) || 0,
+            marketValue: parseFloat(arr[17]) || 0,
           })
-          const text = await decodeGBK(res)
-          const match = text.match(/var hq_str_\w+="([^"]+)"/)
-          if (match) {
-            const arr = match[1].split(',')
-            const price = parseFloat(arr[3])
-            const preClose = parseFloat(arr[2])
-            const change = price - preClose
-            const changePercent = preClose ? (change / preClose) * 100 : 0
-            result.push({
-              code,
-              name: arr[0],
-              price,
-              change: Number(change.toFixed(2)),
-              changePercent: Number(changePercent.toFixed(2)),
-              volume: parseInt(arr[8]) || 0,
-              amount: parseFloat(arr[9]) || 0,
-              high: parseFloat(arr[4]) || 0,
-              low: parseFloat(arr[5]) || 0,
-              open: parseFloat(arr[1]) || 0,
-              preClose,
-              turnoverRate: parseFloat(arr[10] / 100) || 0,
-              pe: parseFloat(arr[12]) || 0,
-              marketValue: parseFloat(arr[17]) || 0,
-            })
-          }
-        } catch (e) {
-          console.error(`获取股票${code}行情失败:`, e)
         }
+        // 按请求顺序返回
+        return codes
+          .map((code) => result.find((r) => r.code === code))
+          .filter(Boolean)
+      } catch (e) {
+        console.error('批量获取股票行情失败:', e)
+        return []
       }
-      return result
     }
 
     // 根据分类获取新闻列表
