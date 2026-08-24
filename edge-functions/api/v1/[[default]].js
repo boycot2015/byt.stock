@@ -1,9 +1,37 @@
 import { getStore } from "@edgeone/pages-blob";
 
-// 全局 Store 单例（Pages 函数单次调用内复用）
+// ============================================================
+// 存储抽象层：优先 Pages Blob，本地开发自动降级到内存
+// ============================================================
+
+// 内存存储（本地开发兜底）
+class MemoryBlob {
+  constructor() { this.map = new Map() }
+  async get(key, { type } = {}) {
+    const v = this.map.get(key)
+    if (v === undefined) return null
+    return type === "json" ? v : (typeof v === "string" ? v : JSON.stringify(v))
+  }
+  async setJSON(key, value) { this.map.set(key, value) }
+  async set(key, value) { this.map.set(key, value) }
+  async delete(key) { this.map.delete(key) }
+  async list({ prefix } = {}) {
+    const blobs = [...this.map.keys()]
+      .filter((k) => !prefix || k.startsWith(prefix))
+      .map((k) => ({ key: k, etag: "" }))
+    return { blobs }
+  }
+}
+
 let _store = null
 function getBlobStore() {
-  if (!_store) _store = getStore("stock-store")
+  if (_store) return _store
+  try {
+    _store = getStore("stock-store")
+  } catch (e) {
+    console.warn("[blob] Pages Blob not available, falling back to in-memory store:", e.message)
+    _store = new MemoryBlob()
+  }
   return _store
 }
 
@@ -170,51 +198,233 @@ version:'HTTP/1.1',
 maxFollow:12
 }
  */
-// 密码工具函数 - 安全哈希存储
-async function hashPassword(password) {
-  const salt = crypto.getRandomValues(new Uint8Array(16))
-  const encoder = new TextEncoder()
-  const passwordBuffer = encoder.encode(password)
+// ============================================================
+// 纯 JS 实现 SHA-256 + PBKDF2（EdgeOne 边缘环境无 crypto.subtle）
+// ============================================================
 
-  const keyMaterial = await crypto.subtle.importKey('raw', passwordBuffer, { name: 'PBKDF2' }, false, ['deriveBits'])
-  const keyBits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, keyMaterial, 256)
-
-  return btoa(String.fromCharCode(...salt)) + ':' + btoa(String.fromCharCode(...new Uint8Array(keyBits)))
+// 安全随机数：优先 crypto.getRandomValues，没有则退化
+function secureRandomBytes(n) {
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const arr = new Uint8Array(n)
+    crypto.getRandomValues(arr)
+    return arr
+  }
+  // 退化方案：Math.random + 时间熵（仅用于非密码学随机，如 token）
+  const arr = new Uint8Array(n)
+  const t = Date.now()
+  for (let i = 0; i < n; i++) {
+    arr[i] = Math.floor(Math.random() * 256) ^ ((t >> (i % 4) * 8) & 0xff)
+  }
+  return arr
 }
 
-// 密码验证
-async function verifyPassword(password, hash) {
-  const [saltBase64, hashBase64] = hash.split(':')
-  if (!saltBase64 || !hashBase64) return false
+// SHA-256 纯 JS 实现
+const SHA256_K = new Uint32Array([
+  0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+  0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+  0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+  0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+  0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+  0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+  0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+  0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2,
+])
 
-  const salt = new Uint8Array(
-    atob(saltBase64)
-      .split('')
-      .map((c) => c.charCodeAt(0)),
-  )
-  const storedHash = atob(hashBase64)
-    .split('')
-    .map((c) => c.charCodeAt(0))
+function sha256(message) {
+  // message: Uint8Array
+  const H = new Uint32Array([0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19])
+  const bitLen = message.length * 8
 
-  const encoder = new TextEncoder()
-  const passwordBuffer = encoder.encode(password)
-  const keyMaterial = await crypto.subtle.importKey('raw', passwordBuffer, { name: 'PBKDF2' }, false, ['deriveBits'])
-  const keyBits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, keyMaterial, 256)
-  const computedHash = Array.from(new Uint8Array(keyBits))
+  // padding
+  const blockLen = Math.ceil((message.length + 9) / 64) * 64
+  const padded = new Uint8Array(blockLen)
+  padded.set(message)
+  padded[message.length] = 0x80
+  const view = new DataView(padded.buffer)
+  // 64-bit big-endian length (high 32 bits always 0 for our size)
+  view.setUint32(blockLen - 8, 0)
+  view.setUint32(blockLen - 4, bitLen)
 
-  // 安全比较，防止时序攻击
-  if (computedHash.length !== storedHash.length) return false
-  let diff = 0
-  for (let i = 0; i < computedHash.length; i++) {
-    diff |= computedHash[i] ^ storedHash[i]
+  const W = new Uint32Array(64)
+  for (let block = 0; block < blockLen; block += 64) {
+    for (let i = 0; i < 16; i++) {
+      W[i] = view.getUint32(block + i * 4)
+    }
+    for (let i = 16; i < 64; i++) {
+      const s0 = rotr(W[i - 15], 7) ^ rotr(W[i - 15], 18) ^ (W[i - 15] >>> 3)
+      const s1 = rotr(W[i - 2], 17) ^ rotr(W[i - 2], 19) ^ (W[i - 2] >>> 10)
+      W[i] = (W[i - 16] + s0 + W[i - 7] + s1) | 0
+    }
+
+    let [a,b,c,d,e,f,g,h] = H
+    for (let i = 0; i < 64; i++) {
+      const S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)
+      const ch = (e & f) ^ (~e & g)
+      const temp1 = (h + S1 + ch + SHA256_K[i] + W[i]) | 0
+      const S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)
+      const maj = (a & b) ^ (a & c) ^ (b & c)
+      const temp2 = (S0 + maj) | 0
+      h = g
+      g = f
+      f = e
+      e = (d + temp1) | 0
+      d = c
+      c = b
+      b = a
+      a = (temp1 + temp2) | 0
+    }
+    H[0] = (H[0] + a) | 0
+    H[1] = (H[1] + b) | 0
+    H[2] = (H[2] + c) | 0
+    H[3] = (H[3] + d) | 0
+    H[4] = (H[4] + e) | 0
+    H[5] = (H[5] + f) | 0
+    H[6] = (H[6] + g) | 0
+    H[7] = (H[7] + h) | 0
   }
-  return diff === 0
+
+  const out = new Uint8Array(32)
+  const outView = new DataView(out.buffer)
+  for (let i = 0; i < 8; i++) outView.setUint32(i * 4, H[i])
+  return out
+}
+
+function rotr(x, n) { return ((x >>> n) | (x << (32 - n))) | 0 }
+
+// HMAC-SHA256
+function hmacSha256(key, message) {
+  // key, message: Uint8Array
+  let k = key
+  if (k.length > 64) {
+    k = sha256(k)
+  }
+  const kPadded = new Uint8Array(64)
+  kPadded.set(k)
+
+  const oPad = new Uint8Array(64)
+  const iPad = new Uint8Array(64)
+  for (let i = 0; i < 64; i++) {
+    oPad[i] = kPadded[i] ^ 0x5c
+    iPad[i] = kPadded[i] ^ 0x36
+  }
+  const inner = new Uint8Array(64 + message.length)
+  inner.set(iPad)
+  inner.set(message, 64)
+  const innerHash = sha256(inner)
+
+  const outer = new Uint8Array(64 + 32)
+  outer.set(oPad)
+  outer.set(innerHash, 64)
+  return sha256(outer)
+}
+
+// PBKDF2-HMAC-SHA256
+function pbkdf2Sha256(password, salt, iterations, dkLen) {
+  const encoder = new TextEncoder()
+  const P = typeof password === 'string' ? encoder.encode(password) : password
+  const S = typeof salt === 'string' ? encoder.encode(salt) : salt
+
+  const hLen = 32
+  const l = Math.ceil(dkLen / hLen)
+  const dk = new Uint8Array(l * hLen)
+
+  const saltWithIndex = new Uint8Array(S.length + 4)
+  saltWithIndex.set(S)
+
+  for (let i = 1; i <= l; i++) {
+    saltWithIndex[S.length + 0] = (i >>> 24) & 0xff
+    saltWithIndex[S.length + 1] = (i >>> 16) & 0xff
+    saltWithIndex[S.length + 2] = (i >>> 8) & 0xff
+    saltWithIndex[S.length + 3] = i & 0xff
+
+    let u = hmacSha256(P, saltWithIndex)
+    let t = new Uint8Array(u)
+    for (let c = 1; c < iterations; c++) {
+      u = hmacSha256(P, u)
+      for (let j = 0; j < hLen; j++) t[j] ^= u[j]
+    }
+    dk.set(t, (i - 1) * hLen)
+  }
+  return dk.slice(0, dkLen)
+}
+
+// Base64 工具（Uint8Array <-> base64 string）
+function bytesToBase64(bytes) {
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+  return btoa(binary)
+}
+function base64ToBytes(str) {
+  const binary = atob(str)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return bytes
+}
+
+// ============================================================
+// 密码工具函数 - 安全哈希存储（纯 JS 实现，兼容 EdgeOne）
+// ============================================================
+
+// 注意：为适配 EdgeOne 边缘环境性能，默认迭代次数 10000
+// 纯 JS PBKDF2 性能约 60ms/万次
+const PBKDF2_DEFAULT_ITERATIONS = 10000
+// 历史迭代次数（早期 crypto.subtle 版本）
+const PBKDF2_LEGACY_ITERATIONS = 100000
+
+// 存储格式：saltBase64:iterations:hashBase64
+// 老格式（无迭代次数段）兼容：默认按 legacy 尝试，失败再试 default
+async function hashPassword(password) {
+  const salt = secureRandomBytes(16)
+  const hash = pbkdf2Sha256(password, salt, PBKDF2_DEFAULT_ITERATIONS, 32)
+  return bytesToBase64(salt) + ':' + PBKDF2_DEFAULT_ITERATIONS + ':' + bytesToBase64(hash)
+}
+
+async function verifyPassword(password, hash) {
+  const parts = hash.split(':')
+  if (parts.length < 2 || parts.length > 3) return false
+
+  try {
+    let saltBase64, hashBase64, iterations
+    if (parts.length === 3) {
+      // 新格式：salt:iter:hash
+      ;[saltBase64, iterations, hashBase64] = parts
+      iterations = parseInt(iterations, 10)
+      if (!Number.isFinite(iterations) || iterations < 1) return false
+    } else {
+      // 老格式（2段）：先试 legacy 10万次，失败再试 default 1万次
+      ;[saltBase64, hashBase64] = parts
+    }
+
+    const salt = base64ToBytes(saltBase64)
+    const storedHash = base64ToBytes(hashBase64)
+
+    function constantTimeEquals(a, b) {
+      if (a.length !== b.length) return false
+      let diff = 0
+      for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i]
+      return diff === 0
+    }
+
+    if (iterations) {
+      const computed = pbkdf2Sha256(password, salt, iterations, 32)
+      return constantTimeEquals(computed, storedHash)
+    }
+
+    // 老格式：先试 10 万次（旧 crypto.subtle 版本）
+    const legacyHash = pbkdf2Sha256(password, salt, PBKDF2_LEGACY_ITERATIONS, 32)
+    if (constantTimeEquals(legacyHash, storedHash)) return true
+
+    // 再试 1 万次（早期误存的 default 数据）
+    const defaultHash = pbkdf2Sha256(password, salt, PBKDF2_DEFAULT_ITERATIONS, 32)
+    return constantTimeEquals(defaultHash, storedHash)
+  } catch (_) {
+    return false
+  }
 }
 
 // 生成安全随机Token
 function generateToken() {
-  const array = new Uint8Array(32)
-  crypto.getRandomValues(array)
+  const array = secureRandomBytes(32)
   return Array.from(array, (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
@@ -1206,7 +1416,6 @@ export default async function onRequest({ request }) {
           if (email && !emailRegex.test(email)) {
             return json(null, 400, '请输入有效的邮箱地址')
           }
-
           // 唯一性校验
           const existingUser = await getUserByUsername(username)
           if (existingUser) {
@@ -1232,15 +1441,35 @@ export default async function onRequest({ request }) {
             balance: 100000, // 默认初始资金10万
             createdAt: new Date().toISOString(),
           }
-          await blobPut(`user:${username}`, userInfo)
-          if (email) {
-            await putBlobString(`email:${email}`, username)
+          try {
+            await blobPut(`user:${username}`, userInfo)
+          } catch (e) {
+            console.error('[register] step1 put user failed:', e.message, e.stack)
+            throw new Error(`存储用户信息失败(user:${username}): ${e.message}`)
           }
-          await putBlobString(`userid:${userId}`, username)
+          if (email) {
+            try {
+              await putBlobString(`email:${email}`, username)
+            } catch (e) {
+              console.error('[register] step2 put email failed:', e.message, e.stack)
+              throw new Error(`存储邮箱映射失败(email:${email}): ${e.message}`)
+            }
+          }
+          try {
+            await putBlobString(`userid:${userId}`, username)
+          } catch (e) {
+            console.error('[register] step3 put userid failed:', e.message, e.stack)
+            throw new Error(`存储用户ID映射失败(userid:${userId}): ${e.message}`)
+          }
 
           // 生成登录Token，有效期7天
           const token = generateToken()
-          await putBlobString(`token:${token}`, userId, { expirationTtl: 60 * 60 * 24 * 7 })
+          try {
+            await putBlobString(`token:${token}`, userId, { expirationTtl: 60 * 60 * 24 * 7 })
+          } catch (e) {
+            console.error('[register] step4 put token failed:', e.message, e.stack)
+            throw new Error(`存储登录Token失败(token:${token}): ${e.message}`)
+          }
 
           return json(
             {
@@ -1256,6 +1485,7 @@ export default async function onRequest({ request }) {
             '注册成功',
           )
         } catch (e) {
+          console.error('[register] full error:', e.message, e.stack)
           return json(null, 500, `注册失败: ${e.message}`)
         }
       }
