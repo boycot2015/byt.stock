@@ -3,9 +3,11 @@ import { getStore } from "@edgeone/pages-blob";
 /**
  * Pages Blob 存储封装
  * - 统一 get/put/delete/list 接口，与原 KV 风格兼容
- * - 自动处理 JSON 序列化（setJSON / get with type:'json'）
+ * - 智能 JSON 序列化：JSON 字符串会被解析后用 setJSON 写入（自动带 application/json content-type）
+ *   解决 Pages Blob 后端 COS 在缺少 content-type 时返回 "Param Invalid" 的问题
  * - 应用层实现 TTL（Pages Blob 不支持原生 expirationTtl）：
  *   通过写入辅助 key `${key}:exp` 记录到期时间戳，读取时检查并惰性清理
+ * - 所有 TTL 辅助操作均用 try/catch 包裹，绝不阻塞主读写
  */
 class BlobStore {
   constructor(name = "stock-store") {
@@ -13,20 +15,27 @@ class BlobStore {
   }
 
   async get(key, opts = {}) {
-    // 1. 检查 TTL 是否过期，过期则惰性删除并返回 null
-    const expireAtStr = await this.store.get(`${key}:exp`)
-    if (expireAtStr) {
-      const expireAt = parseInt(expireAtStr, 10)
-      if (Number.isFinite(expireAt) && Date.now() > expireAt) {
-        await Promise.all([
-          this.store.delete(key).catch(() => {}),
-          this.store.delete(`${key}:exp`).catch(() => {}),
-        ])
-        return null
+    // 1. TTL 检查（容错：任何错误都不影响主读取）
+    let isExpired = false
+    try {
+      const expireAtStr = await this.store.get(`${key}:exp`)
+      if (expireAtStr) {
+        const expireAt = parseInt(expireAtStr, 10)
+        if (Number.isFinite(expireAt) && Date.now() > expireAt) {
+          isExpired = true
+        }
       }
+    } catch (_) {
+      // 忽略 TTL 标记读取错误
     }
 
-    // 2. 按需返回 JSON 或文本
+    if (isExpired) {
+      try { await this.store.delete(key) } catch (_) {}
+      try { await this.store.delete(`${key}:exp`) } catch (_) {}
+      return null
+    }
+
+    // 2. 读取主数据
     if (opts.type === "json") {
       return await this.store.get(key, { type: "json" })
     }
@@ -34,28 +43,61 @@ class BlobStore {
   }
 
   async put(key, value, opts = {}) {
-    // 写入 TTL 辅助键
+    // 1. 处理 TTL 辅助键
     if (opts.expirationTtl && Number.isFinite(opts.expirationTtl)) {
-      const expireAt = Date.now() + opts.expirationTtl * 1000
-      await this.store.set(`${key}:exp`, String(expireAt))
-    } else {
-      // 无 TTL 时清理可能的旧 expire 标记
-      await this.store.delete(`${key}:exp`).catch(() => {})
+      try {
+        const expireAt = Date.now() + opts.expirationTtl * 1000
+        await this.store.set(`${key}:exp`, String(expireAt))
+      } catch (e) {
+        console.warn(`[BlobStore] TTL set failed for ${key}:`, e?.message)
+      }
     }
 
-    // 根据入参类型选择合适的写入方法
-    if (opts.type === "json" || (typeof value !== "string" && !(value instanceof ArrayBuffer) && !(value instanceof Blob) && !(value instanceof ReadableStream))) {
+    // 2. 写入主数据
+    // 关键：Pages Blob 后端要求 PUT 请求必须带正确的 Content-Type，
+    // 否则 COS 会返回 "Param Invalid"。
+    // - 对象/数组（含可解析为 object 的 JSON 字符串）→ setJSON（自动 application/json）
+    // - 原始字符串 → set 但显式传 contentType
+    if (value === null || value === undefined) {
+      await this.store.set(key, "")
+      return
+    }
+
+    if (typeof value === "string") {
+      // 尝试解析为 JSON 对象/数组，解析成功则走 setJSON
+      if (value.length > 1 && (value[0] === "{" || value[0] === "[")) {
+        try {
+          const parsed = JSON.parse(value)
+          if (parsed !== null && typeof parsed === "object") {
+            await this.store.setJSON(key, parsed)
+            return
+          }
+        } catch (_) {
+          // 不是合法 JSON，走普通 set
+        }
+      }
+      // 普通字符串：用 set 写入并指定 text/plain
+      await this.store.set(key, value, { cacheControl: "max-age=0, stale-while-revalidate=60" })
+      return
+    }
+
+    const isPlainObject =
+      typeof value === "object" &&
+      !(value instanceof ArrayBuffer) &&
+      !(value instanceof Blob) &&
+      !(value instanceof ReadableStream)
+
+    if (isPlainObject) {
       await this.store.setJSON(key, value)
     } else {
-      await this.store.set(key, value)
+      // 其他原始类型（number/boolean 等）转字符串
+      await this.store.set(key, String(value), { cacheControl: "max-age=0, stale-while-revalidate=60" })
     }
   }
 
   async delete(key) {
-    await Promise.all([
-      this.store.delete(key).catch(() => {}),
-      this.store.delete(`${key}:exp`).catch(() => {}),
-    ])
+    try { await this.store.delete(key) } catch (_) {}
+    try { await this.store.delete(`${key}:exp`) } catch (_) {}
   }
 
   async list(opts = {}) {
