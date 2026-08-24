@@ -1,28 +1,70 @@
 import { getStore } from "@edgeone/pages-blob";
 
-// Fallback in-memory KV store (used when Pages Blob is not available, e.g. local dev)
-class MemoryKV {
-  constructor() {
-    this.store = new Map()
+/**
+ * Pages Blob 存储封装
+ * - 统一 get/put/delete/list 接口，与原 KV 风格兼容
+ * - 自动处理 JSON 序列化（setJSON / get with type:'json'）
+ * - 应用层实现 TTL（Pages Blob 不支持原生 expirationTtl）：
+ *   通过写入辅助 key `${key}:exp` 记录到期时间戳，读取时检查并惰性清理
+ */
+class BlobStore {
+  constructor(name = "stock-store") {
+    this.store = getStore(name)
   }
-  async get(key, opts) {
-    const raw = this.store.get(key)
-    if (raw === undefined) return null
-    if (opts && opts.type === 'json') {
-      try { return JSON.parse(raw) } catch (e) { return null }
+
+  async get(key, opts = {}) {
+    // 1. 检查 TTL 是否过期，过期则惰性删除并返回 null
+    const expireAtStr = await this.store.get(`${key}:exp`)
+    if (expireAtStr) {
+      const expireAt = parseInt(expireAtStr, 10)
+      if (Number.isFinite(expireAt) && Date.now() > expireAt) {
+        await Promise.all([
+          this.store.delete(key).catch(() => {}),
+          this.store.delete(`${key}:exp`).catch(() => {}),
+        ])
+        return null
+      }
     }
-    return raw
+
+    // 2. 按需返回 JSON 或文本
+    if (opts.type === "json") {
+      return await this.store.get(key, { type: "json" })
+    }
+    return await this.store.get(key)
   }
-  async put(key, value, opts) {
-    this.store.set(key, value)
-    return value
+
+  async put(key, value, opts = {}) {
+    // 写入 TTL 辅助键
+    if (opts.expirationTtl && Number.isFinite(opts.expirationTtl)) {
+      const expireAt = Date.now() + opts.expirationTtl * 1000
+      await this.store.set(`${key}:exp`, String(expireAt))
+    } else {
+      // 无 TTL 时清理可能的旧 expire 标记
+      await this.store.delete(`${key}:exp`).catch(() => {})
+    }
+
+    // 根据入参类型选择合适的写入方法
+    if (opts.type === "json" || (typeof value !== "string" && !(value instanceof ArrayBuffer) && !(value instanceof Blob) && !(value instanceof ReadableStream))) {
+      await this.store.setJSON(key, value)
+    } else {
+      await this.store.set(key, value)
+    }
   }
+
   async delete(key) {
-    this.store.delete(key)
-    return
+    await Promise.all([
+      this.store.delete(key).catch(() => {}),
+      this.store.delete(`${key}:exp`).catch(() => {}),
+    ])
   }
-  async list(opts) {
-    return { keys: Array.from(this.store.keys()), list: Array.from(this.store.keys()) }
+
+  async list(opts = {}) {
+    const result = await this.store.list({ prefix: opts.prefix })
+    return {
+      keys: result.blobs.map((b) => b.key),
+      list: result.blobs.map((b) => b.key),
+      blobs: result.blobs,
+    }
   }
 }
 
@@ -287,14 +329,9 @@ function setCache(key, data, ttlMs = 5000) {
   apiCache.set(key, { data, expireAt: Date.now() + ttlMs })
 }
 export default async function onRequest({ request }, env = {STOCK_KV: null}) {
-    // Use provided STOCK_KV, or try to create a Pages Blob store, with a fallback to in-memory KV
+    // 使用 Pages Blob 作为持久化存储（@edgeone/pages-blob）
     if (!env.STOCK_KV) {
-      try {
-        env.STOCK_KV = getStore("stock-store")
-      } catch (e) {
-        console.warn('Pages Blob store unavailable, falling back to in-memory KV:', e.message)
-        env.STOCK_KV = new MemoryKV()
-      }
+      env.STOCK_KV = new BlobStore("stock-store")
     }
 
     const url = new URL(request.url)

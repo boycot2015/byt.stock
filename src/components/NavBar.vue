@@ -5,7 +5,8 @@
       :class="{ 'text-blue-600 font-medium': route.name === item.route }" @click="onClick(item)">
       <component :is="item.icon" class="mr-1" /> {{ item.label }}
     </span>
-    <ReloadOutlined class="cursor-pointer text-lg hover:text-blue-600 transition-colors" @click="emit('refresh')" title="刷新数据" />
+    <ReloadOutlined class="cursor-pointer text-lg hover:text-blue-600 transition-colors" @click="emit('refresh')"
+      title="刷新数据" />
     <div class="hidden md:block">
       <ThemeSwitch />
     </div>
