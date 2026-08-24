@@ -286,17 +286,16 @@ function getCached(key) {
 function setCache(key, data, ttlMs = 5000) {
   apiCache.set(key, { data, expireAt: Date.now() + ttlMs })
 }
-let env = {}
-// Use provided STOCK_KV, or try to create a Pages Blob store, with a fallback to in-memory KV
-if (!env.STOCK_KV) {
-  try {
-    env.STOCK_KV = getStore("stock-store")
-  } catch (e) {
-    console.warn('Pages Blob store unavailable, falling back to in-memory KV:', e.message)
-    env.STOCK_KV = new MemoryKV()
-  }
-}
-export default async function onRequest({ request }) {
+export default async function onRequest({ request }, env = {STOCK_KV: null}) {
+    // Use provided STOCK_KV, or try to create a Pages Blob store, with a fallback to in-memory KV
+    if (!env.STOCK_KV) {
+      try {
+        env.STOCK_KV = getStore("stock-store")
+      } catch (e) {
+        console.warn('Pages Blob store unavailable, falling back to in-memory KV:', e.message)
+        env.STOCK_KV = new MemoryKV()
+      }
+    }
 
     const url = new URL(request.url)
     let path = url.pathname
