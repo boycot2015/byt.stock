@@ -86,6 +86,7 @@ const toggleSelfStock = async (item: RankItem) => {
     let res = await operateSelfStock(item.code, action)
     if (res.success) {
       fetchData()
+      getSelfStocks()
       message.success('操作成功')
     }
 
