@@ -1,113 +1,91 @@
 import { getStore } from "@edgeone/pages-blob";
 
+// 全局 Store 单例（Pages 函数单次调用内复用）
+let _store = null
+function getBlobStore() {
+  if (!_store) _store = getStore("stock-store")
+  return _store
+}
+
 /**
- * Pages Blob 存储封装
- * - 统一 get/put/delete/list 接口，与原 KV 风格兼容
- * - 智能 JSON 序列化：JSON 字符串会被解析后用 setJSON 写入（自动带 application/json content-type）
- *   解决 Pages Blob 后端 COS 在缺少 content-type 时返回 "Param Invalid" 的问题
- * - 应用层实现 TTL（Pages Blob 不支持原生 expirationTtl）：
- *   通过写入辅助 key `${key}:exp` 记录到期时间戳，读取时检查并惰性清理
- * - 所有 TTL 辅助操作均用 try/catch 包裹，绝不阻塞主读写
+ * 存储工具：基于 @edgeone/pages-blob 原生 API
+ * - 所有写入统一走 setJSON（自动带 application/json），规避 COS Param Invalid
+ * - 值统一包装为 { t, v } 结构，t 表示类型，v 表示原值
+ * - TTL 用辅助键 `${key}:__exp` 存储到期时间戳（秒），读取时惰性检查
  */
-class BlobStore {
-  constructor(name = "stock-store") {
-    this.store = getStore(name)
-  }
 
-  async get(key, opts = {}) {
-    // 1. TTL 检查（容错：任何错误都不影响主读取）
-    let isExpired = false
-    try {
-      const expireAtStr = await this.store.get(`${key}:exp`)
-      if (expireAtStr) {
-        const expireAt = parseInt(expireAtStr, 10)
-        if (Number.isFinite(expireAt) && Date.now() > expireAt) {
-          isExpired = true
-        }
-      }
-    } catch (_) {
-      // 忽略 TTL 标记读取错误
-    }
-
-    if (isExpired) {
-      try { await this.store.delete(key) } catch (_) {}
-      try { await this.store.delete(`${key}:exp`) } catch (_) {}
+async function blobGet(key, { type } = {}) {
+  const store = getBlobStore()
+  // TTL 检查（TTL 辅助键也是 JSON 存储：{ exp: 时间戳秒数 }）
+  try {
+    const expObj = await store.get(`${key}:__exp`, { type: "json" })
+    if (expObj && typeof expObj.exp === "number" && Date.now() / 1000 > expObj.exp) {
+      await store.delete(key).catch(() => {})
+      await store.delete(`${key}:__exp`).catch(() => {})
       return null
     }
-
-    // 2. 读取主数据
-    if (opts.type === "json") {
-      return await this.store.get(key, { type: "json" })
-    }
-    return await this.store.get(key)
+  } catch (_) {
+    /* ignore */
   }
+  return await store.get(key, { type: "json" })
+}
 
-  async put(key, value, opts = {}) {
-    // 1. 处理 TTL 辅助键
-    if (opts.expirationTtl && Number.isFinite(opts.expirationTtl)) {
-      try {
-        const expireAt = Date.now() + opts.expirationTtl * 1000
-        await this.store.set(`${key}:exp`, String(expireAt))
-      } catch (e) {
-        console.warn(`[BlobStore] TTL set failed for ${key}:`, e?.message)
-      }
-    }
-
-    // 2. 写入主数据
-    // 关键：Pages Blob 后端要求 PUT 请求必须带正确的 Content-Type，
-    // 否则 COS 会返回 "Param Invalid"。
-    // - 对象/数组（含可解析为 object 的 JSON 字符串）→ setJSON（自动 application/json）
-    // - 原始字符串 → set 但显式传 contentType
-    if (value === null || value === undefined) {
-      await this.store.set(key, "")
-      return
-    }
-
-    if (typeof value === "string") {
-      // 尝试解析为 JSON 对象/数组，解析成功则走 setJSON
-      if (value.length > 1 && (value[0] === "{" || value[0] === "[")) {
-        try {
-          const parsed = JSON.parse(value)
-          if (parsed !== null && typeof parsed === "object") {
-            await this.store.setJSON(key, parsed)
-            return
-          }
-        } catch (_) {
-          // 不是合法 JSON，走普通 set
-        }
-      }
-      // 普通字符串：用 set 写入并指定 text/plain
-      await this.store.set(key, value, { cacheControl: "max-age=0, stale-while-revalidate=60" })
-      return
-    }
-
-    const isPlainObject =
-      typeof value === "object" &&
-      !(value instanceof ArrayBuffer) &&
-      !(value instanceof Blob) &&
-      !(value instanceof ReadableStream)
-
-    if (isPlainObject) {
-      await this.store.setJSON(key, value)
-    } else {
-      // 其他原始类型（number/boolean 等）转字符串
-      await this.store.set(key, String(value), { cacheControl: "max-age=0, stale-while-revalidate=60" })
-    }
+async function blobPut(key, value, { expirationTtl } = {}) {
+  const store = getBlobStore()
+  // 优先尝试 setJSON；若是字符串则 JSON.parse 后再写
+  let payload = value
+  if (typeof value === "string") {
+    // 字符串：统一包成对象避免 set 缺 Content-Type
+    payload = { __str: value }
+  } else if (value === null || value === undefined) {
+    payload = { __null: true }
   }
-
-  async delete(key) {
-    try { await this.store.delete(key) } catch (_) {}
-    try { await this.store.delete(`${key}:exp`) } catch (_) {}
+  await store.setJSON(key, payload)
+  // TTL 辅助键（用数字值）
+  if (expirationTtl && Number.isFinite(expirationTtl)) {
+    const expireAt = Math.floor(Date.now() / 1000) + expirationTtl
+    await store.setJSON(`${key}:__exp`, { exp: expireAt }).catch((e) =>
+      console.warn(`[blob] ttl put failed for ${key}:`, e?.message),
+    )
   }
+}
 
-  async list(opts = {}) {
-    const result = await this.store.list({ prefix: opts.prefix })
-    return {
-      keys: result.blobs.map((b) => b.key),
-      list: result.blobs.map((b) => b.key),
-      blobs: result.blobs,
-    }
+async function blobDelete(key) {
+  const store = getBlobStore()
+  try { await store.delete(key) } catch (_) {}
+  try { await store.delete(`${key}:__exp`) } catch (_) {}
+}
+
+/**
+ * 获取用户数据（读 user:xxx 键，值为 JSON 对象）
+ */
+async function getUserByUsername(username) {
+  const raw = await blobGet(`user:${username}`)
+  if (!raw || raw.__null) return null
+  // 可能存储的是字符串化的 JSON，也可能直接是对象
+  if (raw.__str) {
+    try { return JSON.parse(raw.__str) } catch (_) { return null }
   }
+  return raw
+}
+
+/**
+ * 获取字符串值（email:xxx / userid:xxx / token:xxx 等映射键）
+ */
+async function getBlobString(key) {
+  const raw = await blobGet(key)
+  if (!raw || raw.__null) return null
+  if (raw.__str) return raw.__str
+  // 兼容老数据
+  if (typeof raw === "string") return raw
+  return raw
+}
+
+/**
+ * 写入字符串值（用 { __str: value } 包装，统一走 setJSON）
+ */
+async function putBlobString(key, value, opts = {}) {
+  await blobPut(key, String(value), opts)
 }
 
 /**
@@ -268,11 +246,11 @@ function isWeekend(dateStr) {
 }
 
 // 从第三方API获取节假日数据
-async function fetchHolidayFromApi(date, env) {
+async function fetchHolidayFromApi(date) {
   const year = date.split('-')[0]
   const weekend = isWeekend(date)
 
-  const apiKey = env.JUHE_API_KEY || ''
+  const apiKey = (typeof process !== 'undefined' && process.env?.JUHE_API_KEY) || ''
 
   if (apiKey) {
     try {
@@ -328,14 +306,14 @@ async function fetchHolidayFromApi(date, env) {
 }
 
 // 从请求获取用户ID（支持X-User-Id和Bearer Token两种方式）
-async function getUserIdFromRequest(request, env) {
+async function getUserIdFromRequest(request) {
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
   let userId = request.headers.get('x-user-id')
 
   // 优先从Bearer Token获取用户ID
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.split(' ')[1]
-    const tokenUserId = await env.STOCK_KV.get(`token:${token}`)
+    const tokenUserId = await getBlobString(`token:${token}`)
     if (tokenUserId) userId = tokenUserId
   }
 
@@ -370,11 +348,8 @@ function getCached(key) {
 function setCache(key, data, ttlMs = 5000) {
   apiCache.set(key, { data, expireAt: Date.now() + ttlMs })
 }
-export default async function onRequest({ request }, env = {STOCK_KV: null}) {
-    // 使用 Pages Blob 作为持久化存储（@edgeone/pages-blob）
-    if (!env.STOCK_KV) {
-      env.STOCK_KV = new BlobStore("stock-store")
-    }
+export default async function onRequest({ request }) {
+    // Pages Blob 单例已在模块级初始化，直接使用 blobGet / blobPut / blobDelete / getUserByUsername / getBlobString / putBlobString
 
     const url = new URL(request.url)
     let path = url.pathname
@@ -637,9 +612,10 @@ export default async function onRequest({ request }, env = {STOCK_KV: null}) {
       if (path === '/user/self-stocks' && method === 'GET') {
         try {
           // 支持Token和X-User-Id两种用户识别方式
-          const userId = await getUserIdFromRequest(request, env)
-          // 从KV读取用户自选股代码列表
-          const stockCodes = (await env.STOCK_KV.get(`user:${userId}:stocks`, { type: 'json' })) || []
+          const userId = await getUserIdFromRequest(request)
+          // 从Pages Blob读取用户自选股代码列表
+          const raw = await blobGet(`user:${userId}:stocks`)
+          const stockCodes = Array.isArray(raw) ? raw : (raw?.__str ? JSON.parse(raw.__str) : [])
           // 批量获取股票实时行情
           const stockList = await batchGetStockQuotes(stockCodes)
           return json(stockList)
@@ -1161,8 +1137,9 @@ export default async function onRequest({ request }, env = {STOCK_KV: null}) {
             return json(null, 400, 'action只能是add、delete或order')
           }
 
-          const userId = await getUserIdFromRequest(request, env)
-          let stockCodes = (await env.STOCK_KV.get(`user:${userId}:stocks`, { type: 'json' })) || []
+          const userId = await getUserIdFromRequest(request)
+          const raw = await blobGet(`user:${userId}:stocks`)
+          let stockCodes = Array.isArray(raw) ? raw : (raw?.__str ? JSON.parse(raw.__str) : [])
 
           if (action === 'order') {
             if (!Array.isArray(codes)) return json(null, 400, '批量排序时codes必须是数组')
@@ -1202,7 +1179,7 @@ export default async function onRequest({ request }, env = {STOCK_KV: null}) {
             }
           }
 
-          await env.STOCK_KV.put(`user:${userId}:stocks`, JSON.stringify(stockCodes))
+          await blobPut(`user:${userId}:stocks`, stockCodes)
 
           return json({ success: true })
         } catch (e) {
@@ -1231,12 +1208,12 @@ export default async function onRequest({ request }, env = {STOCK_KV: null}) {
           }
 
           // 唯一性校验
-          const existingUser = await env.STOCK_KV.get(`user:${username}`)
+          const existingUser = await getUserByUsername(username)
           if (existingUser) {
             return json(null, 400, '用户名已存在')
           }
           if (email) {
-            const existingEmail = await env.STOCK_KV.get(`email:${email}`)
+            const existingEmail = await getBlobString(`email:${email}`)
             if (existingEmail) {
               return json(null, 400, '邮箱已被注册')
             }
@@ -1255,15 +1232,15 @@ export default async function onRequest({ request }, env = {STOCK_KV: null}) {
             balance: 100000, // 默认初始资金10万
             createdAt: new Date().toISOString(),
           }
-          await env.STOCK_KV.put(`user:${username}`, JSON.stringify(userInfo))
+          await blobPut(`user:${username}`, userInfo)
           if (email) {
-            await env.STOCK_KV.put(`email:${email}`, username)
+            await putBlobString(`email:${email}`, username)
           }
-          await env.STOCK_KV.put(`userid:${userId}`, username)
+          await putBlobString(`userid:${userId}`, username)
 
           // 生成登录Token，有效期7天
           const token = generateToken()
-          await env.STOCK_KV.put(`token:${token}`, userId, { expirationTtl: 60 * 60 * 24 * 7 })
+          await putBlobString(`token:${token}`, userId, { expirationTtl: 60 * 60 * 24 * 7 })
 
           return json(
             {
@@ -1298,11 +1275,10 @@ export default async function onRequest({ request }, env = {STOCK_KV: null}) {
           }
 
           // 查找用户
-          const userStr = await env.STOCK_KV.get(`user:${username}`)
-          if (!userStr) {
+          const userInfo = await getUserByUsername(username)
+          if (!userInfo) {
             return json(null, 400, '用户名或密码错误')
           }
-          const userInfo = JSON.parse(userStr)
 
           // 验证密码
           const passwordValid = await verifyPassword(password, userInfo.passwordHash)
@@ -1312,7 +1288,7 @@ export default async function onRequest({ request }, env = {STOCK_KV: null}) {
 
           // 生成新的Token，有效期7天
           const token = generateToken()
-          await env.STOCK_KV.put(`token:${token}`, userInfo.id, { expirationTtl: 60 * 60 * 24 * 7 })
+          await putBlobString(`token:${token}`, userInfo.id, { expirationTtl: 60 * 60 * 24 * 7 })
 
           return json(
             {
@@ -1339,7 +1315,7 @@ export default async function onRequest({ request }, env = {STOCK_KV: null}) {
           const url = new URL(request.url)
           const date = url.searchParams.get('date') || new Date().toISOString().split('T')[0]
           console.log(date, 'date')
-          const holidayData = await fetchHolidayFromApi(date, env)
+          const holidayData = await fetchHolidayFromApi(date)
 
           return json({
             date: holidayData.date,
