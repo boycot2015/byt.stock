@@ -1,0 +1,13 @@
+{
+  "name": "stock",
+  "version": "1.0.0",
+  "description": "股票 API CloudBase 云函数（由 EdgeOne Pages 边缘函数迁移）",
+  "main": "index.js",
+  "private": true,
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@cloudbase/node-sdk": "^3.16.1"
+  }
+}
