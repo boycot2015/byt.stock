@@ -1116,8 +1116,22 @@ export default async function onRequest({ request }) {
         const cached = getCached(cacheKey)
         if (cached) return json(cached)
         const market = isShStock(code) ? '1' : '0'
-        const res = await fetch(`https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${market}.${code}&ut=7e18b5514514e48b4864a7a89e73e62d&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58&iscr=0&iscca=0`)
-        const result = await res.json()
+        const res = await fetch(`https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${market}.${code}&ut=7e18b5514514e48b4864a7a89e73e62d&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58&iscr=0&iscca=0`, {
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            Referer: 'https://quote.eastmoney.com/',
+          },
+        })
+        // 东方财富偶发返回反爬 HTML 页面，需容错避免 500
+        const trendsText = await res.text()
+        let result
+        try {
+          result = JSON.parse(trendsText)
+        } catch (e) {
+          console.error('[time-kline] 东方财富返回非 JSON:', trendsText.slice(0, 120))
+          return json([], 502, '上游分时数据获取失败')
+        }
         const trends = result?.data?.trends || []
         // console.log(result?.data, 'trends');
         // 获取昨收价，兼容不同返回结构
@@ -1185,13 +1199,27 @@ export default async function onRequest({ request }) {
         const getFiveDayTimeKline = async () => {
           try {
             // 东方财富5日分时接口，ndays=5表示获取5个交易日的分时数据
-            const res = await fetch(`https://push2his.eastmoney.com/api/qt/stock/trends2/get?secid=${market}.${code}&ut=7e18b5514514e48b4864a7a89e73e62d&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58&iscr=0&iscca=0&ndays=5`)
+            const res = await fetch(`https://push2his.eastmoney.com/api/qt/stock/trends2/get?secid=${market}.${code}&ut=7e18b5514514e48b4864a7a89e73e62d&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58&iscr=0&iscca=0&ndays=5`, {
+              headers: {
+                'User-Agent':
+                  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                Referer: 'https://quote.eastmoney.com/',
+              },
+            })
 
             if (!res.ok) {
               return json([], 500, '获取5日分时数据失败')
             }
 
-            const result = await res.json()
+            // 东方财富偶发返回反爬 HTML 页面，需容错避免 500
+            const fiveDayText = await res.text()
+            let result
+            try {
+              result = JSON.parse(fiveDayText)
+            } catch (e) {
+              console.error('[five-day-time-kline] 东方财富返回非 JSON:', fiveDayText.slice(0, 120))
+              return json([], 502, '上游5日分时数据获取失败')
+            }
             const trends = result?.data?.trends || []
             const preClose = result?.data?.preClose || parseFloat(result?.data?.qt?.[Object.keys(result?.data?.qt || {})[0]]?.[4]) || 0
 
@@ -1437,8 +1465,22 @@ export default async function onRequest({ request }) {
             apiUrl = baseUrl + '&po=1&fid=f3'
         }
 
-        const res = await fetch(apiUrl)
-        const result = await res.json()
+        const res = await fetch(apiUrl, {
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            Referer: 'https://quote.eastmoney.com/',
+          },
+        })
+        // 东方财富偶发返回反爬 HTML 页面，需容错避免 500
+        const text = await res.text()
+        let result
+        try {
+          result = JSON.parse(text)
+        } catch (e) {
+          console.error('[rank] 东方财富返回非 JSON:', text.slice(0, 120))
+          return json([], 502, '上游行情数据获取失败')
+        }
         const data = result?.data?.diff || []
         // console.log(data, 'rank');
         const list = Object.values(data).map((item, index) => ({
@@ -1471,8 +1513,22 @@ export default async function onRequest({ request }) {
         const fidMap = { '今日': 'f62', '5日': 'f164', '10日': 'f165' }
         const fid = fidMap[indicator] || 'f62'
 
-        const res = await fetch(`https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=30&po=1&np=1&fltt=2&invt=2&fid=${fid}&fs=${fs}&fields=f12,f13,f14,f3,f62,f164,f165,f184,f104`)
-        const result = await res.json()
+        const res = await fetch(`https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=30&po=1&np=1&fltt=2&invt=2&fid=${fid}&fs=${fs}&fields=f12,f13,f14,f3,f62,f164,f165,f184,f104`, {
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            Referer: 'https://quote.eastmoney.com/',
+          },
+        })
+        // 东方财富偶发返回反爬 HTML 页面，需容错避免 500
+        const text = await res.text()
+        let result
+        try {
+          result = JSON.parse(text)
+        } catch (e) {
+          console.error('[board/rank] 东方财富返回非 JSON:', text.slice(0, 120))
+          return json([], 502, '上游板块资金流数据获取失败')
+        }
         const data = result?.data?.diff || []
         const list = Object.values(data).map((item, index) => {
           // 主力净流入净额（根据周期选择 f62 / f164 / f165），单位：元
