@@ -8,7 +8,23 @@ export interface MarketIndex {
   changePercent: number
   volume: number
   amount: number
+  high?: number
+  low?: number
+  open?: number
+  preClose?: number
+  amplitude?: number
   data?: KlineItem[]
+}
+
+// 板块资金流排行项（行业 / 概念 / 地域）
+export interface BoardFundFlowItem {
+  序号: string
+  名称: string
+  今日涨跌幅: number
+  '今日主力净流入-净占比': number
+  '今日主力净流入-净额': number
+  今日主力净流入最大股: string
+  板块类型: string
 }
 
 export interface StockQuote {
@@ -75,9 +91,23 @@ export interface Holiday {
   holidayName: string | null
   source: string
 }
-// 获取大盘指数
-export const getMarketIndex = () => {
-  return request<any, MarketIndex[]>('/market/index', { method: 'GET' })
+// 获取大盘指数（market: cn 沪深京 / hk 港股 / us 美股）
+export const getMarketIndex = (market?: string) => {
+  return request<any, MarketIndex[]>('/market/index', {
+    method: 'GET',
+    params: market ? { market } : {},
+  })
+}
+
+// 获取板块资金流排行（行业 / 概念 / 地域）
+export const getBoardFundFlow = (
+  sectorType: string = '行业资金流',
+  indicator: string = '今日'
+) => {
+  return request<any, BoardFundFlowItem[]>('/market/board/rank', {
+    method: 'GET',
+    params: { sector_type: sectorType, indicator },
+  })
 }
 
 // 获取自选股列表

@@ -24,6 +24,7 @@
       </a-tabs>
       <StockNews v-else :default-code="currentStockCode" class="mb-4" />
       <MarketRank />
+      <BoardFundFlow />
     </div>
   </div>
 </template>
@@ -36,6 +37,7 @@ import StockDetail from '@/components/StockDetail.vue'
 import Holdings from '@/components/Holdings.vue'
 import MarketRank from '@/components/MarketRank.vue'
 import StockNews from '@/components/StockNews.vue'
+import BoardFundFlow from '@/components/BoardFundFlow.vue'
 import { useStockStore } from '@/store/stock'
 
 const stockStore = useStockStore()

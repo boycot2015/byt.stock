@@ -798,7 +798,87 @@ export default async function onRequest({ request }) {
       // 1. 获取大盘指数 匹配接口: GET /market/index
       // ==============================================
       if (path === '/market/index' && method === 'GET') {
-        // 新增科创50/上证50/沪深300/中证500/中证1000 主流宽基指数
+        const market = url.searchParams.get('market') || 'cn'
+
+        // 港股指数（恒生 / 恒生科技 / 恒生国企 / 恒生香港中资）
+        if (market === 'hk') {
+          const res = await fetch('http://hq.sinajs.cn/list=hkHSI,hkHSTECH,hkHSCEI,hkHSCCI', {
+            headers: { Referer: 'https://finance.sina.com.cn' },
+          })
+          const text = await decodeGBK(res)
+          const lines = text.split('\n').filter((line) => line.trim())
+          const codeMap = { hkHSI: 'HSI', hkHSTECH: 'HSTECH', hkHSCEI: 'HSCEI', hkHSCCI: 'HSCCI' }
+          const result = []
+          for (const line of lines) {
+            const match = line.match(/var hq_str_(\w+)="([^"]*)"/)
+            if (!match) continue
+            const arr = match[2].split(',')
+            if (!arr[1] || !arr[2]) continue
+            const price = parseFloat(arr[2])
+            const change = parseFloat(arr[7]) || 0
+            const changePercent = parseFloat(arr[8]) || 0
+            const preClose = price - change
+            const high = parseFloat(arr[4]) || price
+            const low = parseFloat(arr[5]) || price
+            const open = parseFloat(arr[6]) || preClose
+            result.push({
+              code: codeMap[match[1]] || match[1],
+              name: arr[1],
+              price,
+              change: Number(change.toFixed(2)),
+              changePercent: Number(changePercent.toFixed(2)),
+              volume: parseInt(arr[10]) || 0,
+              amount: parseFloat(arr[11]) || 0,
+              high,
+              low,
+              open,
+              preClose,
+              amplitude: preClose ? Number(((high - low) / preClose * 100).toFixed(2)) : 0,
+            })
+          }
+          return json(result)
+        }
+
+        // 美股指数（道琼斯 / 纳斯达克 / 标普500 / 纳斯达克100）
+        if (market === 'us') {
+          const res = await fetch('http://hq.sinajs.cn/list=gb_dji,gb_ixic,gb_sp500,gb_ndx', {
+            headers: { Referer: 'https://finance.sina.com.cn' },
+          })
+          const text = await decodeGBK(res)
+          const lines = text.split('\n').filter((line) => line.trim())
+          const codeMap = { gb_dji: 'DJIA', gb_ixic: 'IXIC', gb_sp500: 'SPX', gb_ndx: 'NDX' }
+          const result = []
+          for (const line of lines) {
+            const match = line.match(/var hq_str_(\w+)="([^"]*)"/)
+            if (!match) continue
+            const arr = match[2].split(',')
+            if (!arr[0] || !arr[1]) continue
+            const price = parseFloat(arr[1])
+            const changePercent = parseFloat(arr[2]) || 0
+            const change = parseFloat(arr[4]) || 0
+            const preClose = price - change
+            const open = parseFloat(arr[5]) || preClose
+            const high = parseFloat(arr[6]) || price
+            const low = parseFloat(arr[7]) || price
+            result.push({
+              code: codeMap[match[1]] || match[1],
+              name: arr[0],
+              price,
+              change: Number(change.toFixed(2)),
+              changePercent: Number(changePercent.toFixed(2)),
+              volume: 0,
+              amount: 0,
+              high,
+              low,
+              open,
+              preClose,
+              amplitude: preClose ? Number(((high - low) / preClose * 100).toFixed(2)) : 0,
+            })
+          }
+          return json(result)
+        }
+
+        // 默认：A 股主要宽基指数
         const res = await fetch('http://hq.sinajs.cn/list=sh000001,sz399001,sz399006,sh000688,sh000016,sz399300,sh000905,sh000852', {
           headers: { Referer: 'https://finance.sina.com.cn' },
         })
@@ -824,6 +904,11 @@ export default async function onRequest({ request }) {
             changePercent: Number(changePercent.toFixed(2)),
             volume: parseInt(arr[8]) || 0,
             amount: parseFloat(arr[9]) || 0,
+            high: parseFloat(arr[4]) || 0,
+            low: parseFloat(arr[5]) || 0,
+            open: parseFloat(arr[1]) || 0,
+            preClose,
+            amplitude: preClose ? Number(((parseFloat(arr[4]) - parseFloat(arr[5])) / preClose * 100).toFixed(2)) : 0,
           })
         }
         return json(result)
@@ -896,9 +981,18 @@ export default async function onRequest({ request }) {
         if (!/^\d{6}$/.test(code)) return json(null, 400, '请输入有效的6位股票代码')
 
         const market = isShStock(code) ? 'sh' : 'sz'
-        const res = await fetch(`http://hq.sinajs.cn/list=${market}${code}`, {
-          headers: { Referer: 'https://finance.sina.com.cn' },
-        })
+        const secid = (isShStock(code) ? '1' : '0') + '.' + code
+        // 量比需从东方财富获取（f51 字段），与 sina 行情并行拉取
+        const [res, vrRes] = await Promise.all([
+          fetch(`http://hq.sinajs.cn/list=${market}${code}`, {
+            headers: { Referer: 'https://finance.sina.com.cn' },
+          }),
+          fetch(`https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f51&invt=2&fltt=2`, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            },
+          }).catch(() => null),
+        ])
 
         const text = await decodeGBK(res)
         // console.log(text, code, 'data');
@@ -910,6 +1004,17 @@ export default async function onRequest({ request }) {
         const preClose = parseFloat(arr[2])
         const change = price - preClose
         const changePercent = preClose ? (change / preClose) * 100 : 0
+
+        // 量比：东方财富 f51 字段（主买/主卖量比）
+        let volumeRatio = 0
+        if (vrRes) {
+          try {
+            const vr = await vrRes.json()
+            volumeRatio = vr?.data?.f51 ? parseFloat(vr.data.f51) : 0
+          } catch (_) {
+            /* ignore */
+          }
+        }
 
         return json({
           code,
@@ -926,6 +1031,7 @@ export default async function onRequest({ request }) {
           turnoverRate: parseFloat(arr[10] / 100) || 0,
           pe: parseFloat(arr[12]) || 0,
           marketValue: parseFloat(arr[17]) || 0,
+          volumeRatio,
         })
       }
 
@@ -1343,6 +1449,48 @@ export default async function onRequest({ request }) {
           changePercent: item.f3 === '-' ? 0 : parseFloat(item.f3),
           volume: item.f5 === '-' ? 0 : parseInt(item.f5),
         }))
+        return json(list)
+      }
+
+      // ==============================================
+      // 板块资金流排行（行业 / 概念 / 地域） 匹配接口: GET /market/board/rank?sector_type=xxx&indicator=xxx
+      // ==============================================
+      if (path === '/market/board/rank' && method === 'GET') {
+        const sectorType = url.searchParams.get('sector_type') || '行业资金流'
+        const indicator = url.searchParams.get('indicator') || '今日'
+
+        // 板块类型 → 东方财富板块行情 fs 参数
+        const fsMap = {
+          '行业资金流': 'm:90+t:2',
+          '概念资金流': 'm:90+t:3',
+          '地域资金流': 'm:90+t:1',
+        }
+        const fs = fsMap[sectorType] || 'm:90+t:2'
+
+        // 时间周期 → 主力净流入排序 / 取值字段
+        const fidMap = { '今日': 'f62', '5日': 'f164', '10日': 'f165' }
+        const fid = fidMap[indicator] || 'f62'
+
+        const res = await fetch(`https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=30&po=1&np=1&fltt=2&invt=2&fid=${fid}&fs=${fs}&fields=f12,f13,f14,f3,f62,f164,f165,f184,f104`)
+        const result = await res.json()
+        const data = result?.data?.diff || []
+        const list = Object.values(data).map((item, index) => {
+          // 主力净流入净额（根据周期选择 f62 / f164 / f165），单位：元
+          const rawNet = item[fid]
+          const mainNet = rawNet === '-' ? 0 : parseFloat(rawNet) || 0
+          // 今日主力净流入净占比
+          const netRatio = item.f184 === '-' ? 0 : parseFloat(item.f184) || 0
+          const changePercent = item.f3 === '-' ? 0 : parseFloat(item.f3) || 0
+          return {
+            序号: String(index + 1),
+            名称: item.f14,
+            今日涨跌幅: changePercent,
+            '今日主力净流入-净占比': netRatio,
+            '今日主力净流入-净额': mainNet,
+            今日主力净流入最大股: '',
+            板块类型: sectorType,
+          }
+        })
         return json(list)
       }
 
