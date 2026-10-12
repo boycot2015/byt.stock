@@ -32,7 +32,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="item in list" :key="item.代码 || item.序号"
+          <tr v-for="item in list" :key="item.序号"
             class="border-b border-[var(--border-color)] hover:bg-[var(--hover-bg)]">
             <td class="py-2 px-2 text-gray-400">{{ item.序号 }}</td>
             <td class="py-2 px-2">
