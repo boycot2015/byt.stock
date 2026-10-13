@@ -970,6 +970,14 @@ export default async function onRequest({ request }) {
         }
         // 最多返回10条结果，过滤名称为空的异常数据
         list = list.filter((item) => item.name && item.code && (item.code.length === 6 || item.code.startsWith('sh') || item.code.startsWith('sz'))).slice(0, 10)
+        // 补充实时行情，避免列表页逐条 N+1 请求（单次批量拉取）
+        try {
+          const quotes = await batchGetStockQuotes(list.map((i) => i.code))
+          const qmap = new Map(quotes.map((q) => [q.code, q]))
+          list = list.map((i) => ({ ...i, ...(qmap.get(i.code) || {}) }))
+        } catch (_) {
+          /* 行情兜底失败不影响搜索结果 */
+        }
         return json(list)
       }
 
@@ -982,20 +990,20 @@ export default async function onRequest({ request }) {
 
         const market = isShStock(code) ? 'sh' : 'sz'
         const secid = (isShStock(code) ? '1' : '0') + '.' + code
-        // 量比需从东方财富获取（f51 字段），与 sina 行情并行拉取
-        const [res, vrRes] = await Promise.all([
+        // sina 给价/涨跌/OHLC/成交量(股)/成交额(元)；东方财富给量比/换手率/市盈/市净/总市值
+        const [res, emRes] = await Promise.all([
           fetch(`http://hq.sinajs.cn/list=${market}${code}`, {
             headers: { Referer: 'https://finance.sina.com.cn' },
           }),
-          fetch(`https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f51&invt=2&fltt=2`, {
+          fetch(`https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f120,f160,f116,f117,f162,f167&invt=2&fltt=2`, {
             headers: {
               'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+              Referer: 'https://quote.eastmoney.com/',
             },
           }).catch(() => null),
         ])
 
         const text = await decodeGBK(res)
-        // console.log(text, code, 'data');
         const match = text.match(/var hq_str_(\w+)="([^"]+)"/)
         if (!match) return json(null, 404, '未找到该股票数据')
 
@@ -1005,14 +1013,22 @@ export default async function onRequest({ request }) {
         const change = price - preClose
         const changePercent = preClose ? (change / preClose) * 100 : 0
 
-        // 量比：东方财富 f51 字段（主买/主卖量比）
         let volumeRatio = 0
-        if (vrRes) {
+        let turnoverRate = 0
+        let pe = 0
+        let pb = 0
+        let marketValue = 0
+        if (emRes) {
           try {
-            const vr = await vrRes.json()
-            volumeRatio = vr?.data?.f51 ? parseFloat(vr.data.f51) : 0
+            const em = await emRes.json()
+            const d = em?.data || {}
+            volumeRatio = d.f120 ? parseFloat(d.f120) : 0
+            turnoverRate = d.f160 ? parseFloat(d.f160) / 100 : 0 // f160 为百分比
+            pe = d.f162 ? parseFloat(d.f162) : 0
+            pb = d.f167 ? parseFloat(d.f167) : 0
+            marketValue = d.f116 ? parseFloat(d.f116) : 0
           } catch (_) {
-            /* ignore */
+            /* 东方财富兜底失败不影响基础行情 */
           }
         }
 
@@ -1022,15 +1038,17 @@ export default async function onRequest({ request }) {
           price,
           change: Number(change.toFixed(2)),
           changePercent: Number(changePercent.toFixed(2)),
-          volume: parseInt(arr[8] / 100000) || 0,
-          amount: parseFloat(arr[9] / 10000000000) || 0,
+          // 单位与 /user/self-stocks 口径一致：volume 股、amount 元
+          volume: parseInt(arr[8]) || 0,
+          amount: parseFloat(arr[9]) || 0,
           high: parseFloat(arr[4]) || 0,
           low: parseFloat(arr[5]) || 0,
           open: parseFloat(arr[1]) || 0,
           preClose,
-          turnoverRate: parseFloat(arr[10] / 100) || 0,
-          pe: parseFloat(arr[12]) || 0,
-          marketValue: parseFloat(arr[17]) || 0,
+          turnoverRate,
+          pe,
+          pb,
+          marketValue,
           volumeRatio,
         })
       }
@@ -1078,30 +1096,44 @@ export default async function onRequest({ request }) {
             return json(null, 400, '无效的周期参数，支持：day/week/month/1min/5min/15min/30min/60min')
         }
 
-        const res = await fetch(`https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${market}.${code}&ut=7e18b5514514e48b4864a7a89e73e62d&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61%2Cf62%2Cf63&klt=${periodId}&fqt=${adjust === 'qfq' ? 1 : adjust === 'hfq' ? 2 : 0}&beg=0&end=20500101&lmt=${count}`)
+        const res = await fetch(`https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${market}.${code}&ut=7e18b5514514e48b4864a7a89e73e62d&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61%2Cf62%2Cf63%2Cf64&klt=${periodId}&fqt=${adjust === 'qfq' ? 1 : adjust === 'hfq' ? 2 : 0}&beg=0&end=20500101&lmt=${count}`)
         const result = await res.json()
-        const klines = result?.data?.klines || []
+        // 上游有时忽略 lmt 返回全量历史，按 count 截取最近 N 根，并剔除异常（非正/缺失）数据
+        const klines = (result?.data?.klines || [])
+          .map((line) => {
+            const parts = line.split(',')
+            const close = parseFloat(parts[2])
+            if (!isFinite(close) || close <= 0) return null
+            return {
+              time: parts[0].includes(' ') ? parts[0].split(' ')[0] : parts[0],
+              open: parseFloat(parts[1]),
+              high: parseFloat(parts[3]),
+              low: parseFloat(parts[4]),
+              close,
+              volume: parseInt(parts[5]),
+              amount: parseFloat(parts[6]),
+            }
+          })
+          .filter(Boolean)
+          .slice(-count)
 
-        const data = klines.map((line) => {
-          const parts = line.split(',')
-          const [time, open, close, high, low, volume, amount] = parts.slice(0, 7)
-          // 均线数据：f58=5日均线, f59=10日均线, f60=20日均线
-          const ma5 = parts[7] ? parseFloat(parts[7]) : null
-          const ma10 = parts[8] ? parseFloat(parts[8]) : null
-          const ma20 = parts[9] ? parseFloat(parts[9]) : null
-
-          return {
-            time: time.includes(' ') ? time.split(' ')[0] : time,
-            open: parseFloat(open),
-            high: parseFloat(high),
-            low: parseFloat(low),
-            close: parseFloat(close),
-            volume: parseInt(volume),
-            ma5,
-            ma10,
-            ma20,
-          }
-        })
+        // 后端补齐均线（上游 f62-f64 常返回 0）
+        const calcMA = (n) =>
+          klines.map((_, i) => {
+            if (i + 1 < n) return null
+            let sum = 0
+            for (let j = i - n + 1; j <= i; j++) sum += klines[j].close
+            return Number((sum / n).toFixed(2))
+          })
+        const ma5 = calcMA(5)
+        const ma10 = calcMA(10)
+        const ma20 = calcMA(20)
+        const data = klines.map((d, i) => ({
+          ...d,
+          ma5: ma5[i],
+          ma10: ma10[i],
+          ma20: ma20[i],
+        }))
         return json(data)
       }
 
@@ -1241,7 +1273,8 @@ export default async function onRequest({ request }) {
             for (const line of trends) {
               const parts = line.split(',')
               if (parts.length < 6) continue
-              const [time, open, price, high, low, volume, avgPrice, changeAmount, changePercent, turnover] = parts
+              // 五日均走分时格式：time, price, avgPrice, ..., volume（不可按 K 线格式解析，否则 avgPrice 错位）
+              const [time, price, avgPrice, , , volume] = parts
               // 解析时间和价格
               const currentPrice = parseFloat(price)
               const currentAvgPrice = parseFloat(avgPrice)
@@ -1296,26 +1329,30 @@ export default async function onRequest({ request }) {
         if (!/^\d{6}$/.test(code)) return json(null, 400, '请输入有效的6位股票代码')
 
         const market = isShStock(code) ? 'sh' : 'sz'
-        // 使用isShStock统一判断市场（已包含基金前缀51/52/58）
-        const secid = (isShStock(code) ? '1' : '0') + '.' + code
-        const fields = Array.from({ length: 200 }, (_, i) => `f${i + 1}`).join(',')
-        // https://push2.eastmoney.com/api/qt/stock/get?ut=fa5fd1943c7b386f172d6893dbfba10b&invt=2&fltt=2&fields=f43,f57,f58,f169,f170,f46,f44,f51,f168,f47,f164,f116,f60,f45,f52,f50,f48,f167,f117,f71,f161,f49,f530,f135,f136,f137,f138,f139,f141,f142,f144,f145,f147,f148,f140,f143,f146,f149,f55,f62,f162,f92,f173,f104,f105,f84,f85,f183,f184,f185,f186,f187,f188,f189,f190,f191,f192,f107,f111,f86,f177,f78,f110,f262,f263,f264,f267,f268,f250,f251,f252,f253,f254,f255,f256,f257,f258,f266,f269,f270,f271,f273,f274,f275,f127,f199,f128,f193,f196,f194,f195,f197,f80,f280,f281,f282,f284,f285,f286,f287&secid=0.000100
-        const res = await fetch(`https://push2.eastmoney.com/api/qt/stock/get?fields=${fields}&invt=1&fltt=2&secid=${secid}`, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          },
+        const res = await fetch(`http://hq.sinajs.cn/list=${market}${code}`, {
+          headers: { Referer: 'https://finance.sina.com.cn' },
         })
-        const result = await res.json()
-        // console.log(result, fields, 'depth');
-        const data = result?.data
-        if (!data || !data.f46) return json(null, 404, '未找到该股票盘口数据')
-        const asks = []
-        const bids = []
+        const text = await decodeGBK(res)
+        const match = text.match(/var hq_str_(\w+)="([^"]+)"/)
+        if (!match) return json(null, 404, '未找到该股票盘口数据')
+        const arr = match[2].split(',')
+        // 五档量价成对出现：买一量/价(idx10/11)…买五(idx18/19)，卖一量/价(idx20/21)…卖五(idx28/29)
+        if (arr.length < 30) return json(null, 404, '盘口数据不完整')
+        const toLevel = (qIdx, pIdx) => ({
+          price: parseFloat(arr[pIdx]) || 0,
+          volume: Math.round((parseInt(arr[qIdx], 10) || 0) / 100), // 新浪为股，换算成手
+        })
+        const bids = [
+          toLevel(10, 11), toLevel(12, 13), toLevel(14, 15), toLevel(16, 17), toLevel(18, 19),
+        ]
+        const asks = [
+          toLevel(20, 21), toLevel(22, 23), toLevel(24, 25), toLevel(26, 27), toLevel(28, 29),
+        ]
 
-        // 卖1到卖5：f46(卖1价),f47(卖1量),f48(卖2价),f49(卖2量)...
-        for (let i = 0; i <= 2; i++) {
+        // 卖1到卖5（占位，下方统一重写）
+        if (false) {
           const price = data[`f${44 + i}`]
-          const volume = parseInt(data[`f${47 + i}`] / 1000) || 0
+          const volume = 0 // 五档已由上方新浪解析生成
           asks.push({
             price: price || 0,
             volume: volume || 0,
@@ -1323,7 +1360,7 @@ export default async function onRequest({ request }) {
         }
 
         // 买1到买5：f56(买1价),f57(买1量),f58(买2价),f59(买2量)...
-        for (let i = 0; i < 3; i++) {
+        if (false) {
           const price = data[`f${174 + i * 5}`] || data[`f${60}`]
           const volume = parseInt(data[`f${84 + i}`] / 1000) || 0
           bids.push({

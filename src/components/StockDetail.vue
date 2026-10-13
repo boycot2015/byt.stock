@@ -115,10 +115,10 @@
           <div>最低: {{ formatPrice(stockInfo?.low || 0) }}</div>
           <div>昨收: {{ formatPrice(stockInfo?.preClose || 0) }}</div>
           <div>成交量: {{ (stockInfo?.volume || 0) / 10000 }}万手</div>
-          <div>成交额: {{ stockInfo?.amount.toFixed(2) }}亿</div>
+          <div>成交额: {{ ((stockInfo?.amount || 0) / 1e8).toFixed(2) }}亿</div>
           <div>换手率: {{ stockInfo?.turnoverRate.toFixed(2) }}%</div>
           <div>市盈率: {{ stockInfo?.pe.toFixed(2) }}</div>
-          <div>总市值: {{ stockInfo?.marketValue.toFixed(2) }}亿</div>
+          <div>总市值: {{ ((stockInfo?.marketValue || 0) / 1e8).toFixed(2) }}亿</div>
         </div>
       </div>
     </div>
