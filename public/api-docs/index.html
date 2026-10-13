@@ -377,17 +377,22 @@
 <script>
 const API = [
   {
-    id: 'market', name: '行情', desc: '大盘指数 / 个股行情 / 排行 / 盘口',
+    id: 'market', name: '行情', desc: '大盘指数 / 个股行情 / 排行 / 板块资金流 / 盘口',
     items: [
       { m: 'GET', p: '/api/v1/market/index', d: '大盘指数列表（上证 / 深证 / 创业板 / 科创50 等 8 大指数）', params: [] },
       { m: 'GET', p: '/api/v1/stock/quote', d: '个股实时行情',
-        params: [{ n: 'code', t: 'string', req: true, d: '6 位股票代码，如 600519' }] },
+        params: [{ n: 'code', t: 'string', req: true, d: '6 位股票代码，如 600519' }],
+        note: '返回 volume 单位为「股」、amount 单位为「元」，与 /user/self-stocks 口径一致。' },
       { m: 'GET', p: '/api/v1/stock/search', d: '搜索股票（代码 / 名称 / 拼音）',
         params: [{ n: 'keyword', t: 'string', req: true, d: '搜索关键词，最多返回 10 条' }] },
       { m: 'GET', p: '/api/v1/market/rank', d: '行情排行榜',
         params: [
           { n: 'type', t: 'string', d: '排行类型，默认 rise', e: 'rise 涨幅榜 / fall 跌幅榜 / volume 成交量榜 / amount 成交额榜' },
           { n: 'count', t: 'number', d: '返回条数，默认 20' }] },
+      { m: 'GET', p: '/api/v1/market/board/rank', d: '板块资金流排行（行业 / 概念 / 地域）',
+        params: [
+          { n: 'sector_type', t: 'string', d: '板块类型，默认 行业资金流', e: '行业资金流 / 概念资金流 / 地域资金流' },
+          { n: 'indicator', t: 'string', d: '时间周期，默认 今日', e: '今日 / 5日 / 10日' }] },
       { m: 'GET', p: '/api/v1/stock/depth', d: '盘口买卖档位',
         params: [{ n: 'code', t: 'string', req: true, d: '6 位股票代码' }] }
     ]

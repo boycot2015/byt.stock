@@ -531,8 +531,9 @@ async function getUserIdFromRequest(request) {
 
   return userId || 'default_user'
 }
-// 上海指数代码列表（000开头）
-const SH_INDEX_CODES = ['000001', '000016', '000905', '000688', '000852']
+// 上海指数代码列表（仅保留无对应深圳股票的纯指数代码：000688=科创50、000852=中证1000）
+// 000001/000016/000905 均为深圳股票（平安银行/深康佳A/厦门港务），须走 sz，不可在此命中
+const SH_INDEX_CODES = ['000688', '000852']
 
 const isShStock = (code) => {
   // 上海指数（000开头特定代码）
@@ -1182,7 +1183,7 @@ export default async function onRequest({ request }) {
           const volumeHistory = [] // 存储历史成交量，用于计算5分钟平均
 
           for (const line of trends) {
-            const [time, price, avg, newPrice, newPrice2, volume] = line.split(',')
+            const [time, , , price, , volume, , avgPrice] = line.split(',')
             const currentPrice = parseFloat(price)
             let vol = parseInt(volume) || 0 // 容错处理，避免NaN
 
@@ -1210,7 +1211,7 @@ export default async function onRequest({ request }) {
               preClose,
               time: time.split(' ')[1] || time, // 提取HH:mm部分和mock对齐
               price: currentPrice,
-              avgPrice: parseFloat(avg),
+              avgPrice: parseFloat(avgPrice),
               volume: vol,
             })
             lastPrice = currentPrice // 更新上一笔价格用于下一次对比
@@ -1272,9 +1273,9 @@ export default async function onRequest({ request }) {
 
             for (const line of trends) {
               const parts = line.split(',')
-              if (parts.length < 6) continue
-              // 五日均走分时格式：time, price, avgPrice, ..., volume（不可按 K 线格式解析，否则 avgPrice 错位）
-              const [time, price, avgPrice, , , volume] = parts
+              if (parts.length < 8) continue
+              // 东方财富 trends2 字段顺序：时间, [f52=0占位], f53, f54(最新价), f55, f56(成交量), f57(成交额), f58(当日均价)
+              const [time, , , price, , volume, , avgPrice] = parts
               // 解析时间和价格
               const currentPrice = parseFloat(price)
               const currentAvgPrice = parseFloat(avgPrice)
