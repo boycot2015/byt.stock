@@ -10,8 +10,8 @@
             {{ formatPrice(stockInfo?.price || 0) }}
           </span>
           <span :class="stockInfo?.change >= 0 ? 'text-red-500' : 'text-green-500'" class="text-xl ml-4"> {{
-            stockInfo?.change >= 0 ? '+' : '' }}{{ stockInfo?.change.toFixed(2) }} ({{ stockInfo?.changePercent >= 0 ?
-              '+' : '' }}{{ stockInfo?.changePercent.toFixed(2) }}%) </span>
+            (stockInfo?.change || 0) >= 0 ? '+' : '' }}{{ (stockInfo?.change || 0).toFixed(2) }} ({{ (stockInfo?.changePercent || 0) >= 0 ?
+              '+' : '' }}{{ (stockInfo?.changePercent || 0).toFixed(2) }}%) </span>
         </div>
         <!-- <div class="mt-2 text-sm text-gray-600" v-if="userStore.userInfo">
           当前可用资金：¥{{ userStore.userInfo?.balance?.toFixed(2) || '0.00' }}
@@ -116,8 +116,8 @@
           <div>昨收: {{ formatPrice(stockInfo?.preClose || 0) }}</div>
           <div>成交量: {{ (stockInfo?.volume || 0) / 10000 }}万手</div>
           <div>成交额: {{ ((stockInfo?.amount || 0) / 1e8).toFixed(2) }}亿</div>
-          <div>换手率: {{ stockInfo?.turnoverRate.toFixed(2) }}%</div>
-          <div>市盈率: {{ stockInfo?.pe.toFixed(2) }}</div>
+          <div>换手率: {{ (stockInfo?.turnoverRate || 0).toFixed(2) }}%</div>
+          <div>市盈率: {{ (stockInfo?.pe || 0).toFixed(2) }}</div>
           <div>总市值: {{ ((stockInfo?.marketValue || 0) / 1e8).toFixed(2) }}亿</div>
         </div>
       </div>

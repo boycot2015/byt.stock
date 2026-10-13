@@ -1032,14 +1032,15 @@ async function onRequest({ request }) {
 
         const market = isShStock(code) ? 'sh' : 'sz'
         const secid = (isShStock(code) ? '1' : '0') + '.' + code
-        // 量比需从东方财富获取（f51 字段），与 sina 行情并行拉取
-        const [res, vrRes] = await Promise.all([
+        // 量比/换手率/市盈/市净/总市值需从东方财富获取（f120/f160/f162/f167/f116），与 sina 行情并行拉取
+        const [res, emRes] = await Promise.all([
           fetch(`http://hq.sinajs.cn/list=${market}${code}`, {
             headers: { Referer: 'https://finance.sina.com.cn' },
           }),
-          fetch(`https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f51&invt=2&fltt=2`, {
+          fetch(`https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f120,f160,f116,f117,f162,f167&invt=2&fltt=2`, {
             headers: {
-              'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+              'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537/36',
+              Referer: 'https://quote.eastmoney.com/',
             },
           }).catch(() => null),
         ])
@@ -1055,14 +1056,23 @@ async function onRequest({ request }) {
         const change = price - preClose
         const changePercent = preClose ? (change / preClose) * 100 : 0
 
-        // 量比：东方财富 f51 字段（主买/主卖量比）
+        // 量比/换手率/市盈/市净/总市值：东方财富字段（sina 基础行情不含这些）
         let volumeRatio = 0
-        if (vrRes) {
+        let turnoverRate = 0
+        let pe = 0
+        let pb = 0
+        let marketValue = 0
+        if (emRes) {
           try {
-            const vr = await vrRes.json()
-            volumeRatio = vr?.data?.f51 ? parseFloat(vr.data.f51) : 0
+            const em = await emRes.json()
+            const d = em?.data || {}
+            volumeRatio = d.f120 ? parseFloat(d.f120) : 0
+            turnoverRate = d.f160 ? parseFloat(d.f160) / 100 : 0 // f160 为百分比
+            pe = d.f162 ? parseFloat(d.f162) : 0
+            pb = d.f167 ? parseFloat(d.f167) : 0
+            marketValue = d.f116 ? parseFloat(d.f116) : 0
           } catch (_) {
-            /* ignore */
+            /* 东方财富兜底失败不影响基础行情 */
           }
         }
 
@@ -1078,9 +1088,9 @@ async function onRequest({ request }) {
           low: parseFloat(arr[5]) || 0,
           open: parseFloat(arr[1]) || 0,
           preClose,
-          turnoverRate: parseFloat(arr[10] / 100) || 0,
-          pe: parseFloat(arr[12]) || 0,
-          marketValue: parseFloat(arr[17]) || 0,
+          turnoverRate,
+          pe,
+          marketValue,
           volumeRatio,
         })
       }
