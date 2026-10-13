@@ -1159,13 +1159,20 @@ async function onRequest({ request }) {
       // ==============================================
       if (path === '/stock/time-kline' && method === 'GET') {
         const code = url.searchParams.get('code') || ''
+        const secidParam = url.searchParams.get('secid') || ''
         // console.log(code, 'trends');
-        if (!/^\d{6}$/.test(code)) return json(null, 400, '请输入有效的6位股票代码')
-        const cacheKey = `/stock/time-kline?code=${code}`
+        // 支持直接传东方财富 secid（港股/美股指数，如 100.HSI / 124.HSTECH）
+        let secid
+        if (secidParam) {
+          secid = secidParam
+        } else {
+          if (!/^\d{6}$/.test(code)) return json(null, 400, '请输入有效的6位股票代码')
+          secid = `${isShStock(code) ? '1' : '0'}.${code}`
+        }
+        const cacheKey = `/stock/time-kline?secid=${secid}`
         const cached = getCached(cacheKey)
         if (cached) return json(cached)
-        const market = isShStock(code) ? '1' : '0'
-        const res = await fetch(`https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${market}.${code}&ut=7e18b5514514e48b4864a7a89e73e62d&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58&iscr=0&iscca=0`, {
+        const res = await fetch(`https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&ut=7e18b5514514e48b4864a7a89e73e62d&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58&iscr=0&iscca=0`, {
           headers: {
             'User-Agent':
               'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',

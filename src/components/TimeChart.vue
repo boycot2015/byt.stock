@@ -40,6 +40,7 @@ const props = defineProps<{
   className?: string
   simple?: boolean
   code?: string
+  session?: 'cn' | 'hk' | 'us'
 }>()
 const mode = ref<'simple' | 'default'>(props.simple ? 'simple' : 'default')
 const chartRef = ref<InstanceType<typeof VChart>>()
@@ -83,6 +84,23 @@ function parseTimeStr(timeStr: string): number {
   }
 }
 
+// 美股分时后端只返回 HH:mm 且跨午夜，这里还原为完整时间（>=21:30 当天，凌晨归次日）
+function normalizeUsTimes(data: any[]) {
+  const base = new Date()
+  base.setHours(0, 0, 0, 0)
+  return data.map((item) => {
+    const raw = String(item.time || '')
+    const hm = raw.includes(' ') ? raw.split(' ')[1] : raw
+    const [h, mi] = hm.split(':').map(Number)
+    if (isNaN(h) || isNaN(mi)) return item
+    const d = new Date(base)
+    if (h * 60 + mi < 12 * 60) d.setDate(d.getDate() + 1)
+    d.setHours(h, mi, 0, 0)
+    const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    return { ...item, time: `${ds} ${hm}` }
+  })
+}
+
 watch(() => props.data, async (newData, oldData) => {
   if (!newData?.length) {
     chartOption.value = {}
@@ -116,6 +134,9 @@ function updateSeriesData(data: TimeDataItem[]) {
 
 function generateTimeOption(data: TimeDataItem[]) {
   if (!data?.length) return {}
+
+  // 美股：先把 HH:mm 还原为跨午夜完整时间，保证 21:30→04:00 时序正确
+  if (props.session === 'us') data = normalizeUsTimes(data)
 
   const preClose = data[0]?.preClose || 0
   const covertToPercent = (price: number) => {
@@ -179,7 +200,13 @@ function generateTimeOption(data: TimeDataItem[]) {
 
   let breaks: { start: number; end: number; gap?: number }[] = []
 
-  if (isMultiDay) {
+  if (props.session === 'us') {
+    // 美股：21:30-04:00 连续交易（跨午夜、无午休），按数据首尾时间连续渲染
+    const allTimes = data.map((item) => parseTimeStr(item.time)).filter((t) => !isNaN(t))
+    if (allTimes.length) {
+      generateMinuteData(Math.min(...allTimes), Math.max(...allTimes))
+    }
+  } else if (isMultiDay) {
     const dateSet = new Set<string>()
     data.forEach((item) => {
       const time = parseTimeStr(item.time)

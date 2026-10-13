@@ -1110,13 +1110,20 @@ export default async function onRequest({ request }) {
       // ==============================================
       if (path === '/stock/time-kline' && method === 'GET') {
         const code = url.searchParams.get('code') || ''
+        const secidParam = url.searchParams.get('secid') || ''
         // console.log(code, 'trends');
-        if (!/^\d{6}$/.test(code)) return json(null, 400, '请输入有效的6位股票代码')
-        const cacheKey = `/stock/time-kline?code=${code}`
+        // 支持直接传东方财富 secid（港股/美股指数，如 100.HSI / 124.HSTECH）
+        let secid
+        if (secidParam) {
+          secid = secidParam
+        } else {
+          if (!/^\d{6}$/.test(code)) return json(null, 400, '请输入有效的6位股票代码')
+          secid = `${isShStock(code) ? '1' : '0'}.${code}`
+        }
+        const cacheKey = `/stock/time-kline?secid=${secid}`
         const cached = getCached(cacheKey)
         if (cached) return json(cached)
-        const market = isShStock(code) ? '1' : '0'
-        const res = await fetch(`https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${market}.${code}&ut=7e18b5514514e48b4864a7a89e73e62d&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58&iscr=0&iscca=0`, {
+        const res = await fetch(`https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&ut=7e18b5514514e48b4864a7a89e73e62d&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58&iscr=0&iscca=0`, {
           headers: {
             'User-Agent':
               'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -1442,112 +1449,116 @@ export default async function onRequest({ request }) {
       // 12. 获取行情排行 匹配接口: GET /market/rank?type=xxx&count=xxx
       // ==============================================
       if (path === '/market/rank' && method === 'GET') {
-        const type = url.searchParams.get('type') || 'rise'
-        const count = parseInt(url.searchParams.get('count') || '20')
-
-        const baseUrl = `https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=${count}&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23&fields=f2,f3,f4,f5,f6,f12,f14`
-        let apiUrl
-
-        switch (type) {
-          case 'rise':
-            apiUrl = baseUrl + '&po=1&fid=f3'
-            break // 涨幅
-          case 'fall':
-            apiUrl = baseUrl + '&po=0&fid=f3'
-            break // 跌幅
-          case 'volume':
-            apiUrl = baseUrl + '&po=1&fid=f5'
-            break // 成交量
-          case 'amount':
-            apiUrl = baseUrl + '&po=1&fid=f6'
-            break // 成交额
-          default:
-            apiUrl = baseUrl + '&po=1&fid=f3'
-        }
-
-        const res = await fetch(apiUrl, {
-          headers: {
-            'User-Agent':
-              'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            Referer: 'https://quote.eastmoney.com/',
-          },
-        })
-        // 东方财富偶发返回反爬 HTML 页面，需容错避免 500
-        const text = await res.text()
         let result
+        let text
         try {
+          const type = url.searchParams.get('type') || 'rise'
+          const count = parseInt(url.searchParams.get('count') || '20')
+  
+          const baseUrl = `https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=${count}&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23&fields=f2,f3,f4,f5,f6,f12,f14`
+          let apiUrl
+  
+          switch (type) {
+            case 'rise':
+              apiUrl = baseUrl + '&po=1&fid=f3'
+              break // 涨幅
+            case 'fall':
+              apiUrl = baseUrl + '&po=0&fid=f3'
+              break // 跌幅
+            case 'volume':
+              apiUrl = baseUrl + '&po=1&fid=f5'
+              break // 成交量
+            case 'amount':
+              apiUrl = baseUrl + '&po=1&fid=f6'
+              break // 成交额
+            default:
+              apiUrl = baseUrl + '&po=1&fid=f3'
+          }
+  
+          const res = await fetch(apiUrl, {
+            headers: {
+              'User-Agent':
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+              Referer: 'https://quote.eastmoney.com/',
+            },
+          })
+          console.log('[rank] 东方财富返回:', res)
+          // 东方财富偶发返回反爬 HTML 页面，需容错避免 500
+          text = await res.text()
           result = JSON.parse(text)
+          const data = result?.data?.diff || []
+          // console.log(data, 'rank');
+          const list = Object.values(data).map((item, index) => ({
+            rank: index + 1,
+            code: item.f12,
+            name: item.f14,
+            price: item.f2 === '-' ? 0 : parseFloat(item.f2),
+            changePercent: item.f3 === '-' ? 0 : parseFloat(item.f3),
+            volume: item.f5 === '-' ? 0 : parseInt(item.f5),
+          }))
+          return json(list)
         } catch (e) {
-          console.error('[rank] 东方财富返回非 JSON:', text.slice(0, 120))
-          return json([], 502, '上游行情数据获取失败')
+          console.error('[rank] 东方财富返回非 JSON:', e)
+          return json([], 502, '上游行情数据获取失败:' + e)
         }
-        const data = result?.data?.diff || []
-        // console.log(data, 'rank');
-        const list = Object.values(data).map((item, index) => ({
-          rank: index + 1,
-          code: item.f12,
-          name: item.f14,
-          price: item.f2 === '-' ? 0 : parseFloat(item.f2),
-          changePercent: item.f3 === '-' ? 0 : parseFloat(item.f3),
-          volume: item.f5 === '-' ? 0 : parseInt(item.f5),
-        }))
-        return json(list)
       }
 
       // ==============================================
       // 板块资金流排行（行业 / 概念 / 地域） 匹配接口: GET /market/board/rank?sector_type=xxx&indicator=xxx
       // ==============================================
       if (path === '/market/board/rank' && method === 'GET') {
-        const sectorType = url.searchParams.get('sector_type') || '行业资金流'
-        const indicator = url.searchParams.get('indicator') || '今日'
-
-        // 板块类型 → 东方财富板块行情 fs 参数
-        const fsMap = {
-          '行业资金流': 'm:90+t:2',
-          '概念资金流': 'm:90+t:3',
-          '地域资金流': 'm:90+t:1',
-        }
-        const fs = fsMap[sectorType] || 'm:90+t:2'
-
-        // 时间周期 → 主力净流入排序 / 取值字段
-        const fidMap = { '今日': 'f62', '5日': 'f164', '10日': 'f165' }
-        const fid = fidMap[indicator] || 'f62'
-
-        const res = await fetch(`https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=30&po=1&np=1&fltt=2&invt=2&fid=${fid}&fs=${fs}&fields=f12,f13,f14,f3,f62,f164,f165,f184,f104`, {
-          headers: {
-            'User-Agent':
-              'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            Referer: 'https://quote.eastmoney.com/',
-          },
-        })
-        // 东方财富偶发返回反爬 HTML 页面，需容错避免 500
-        const text = await res.text()
         let result
+        let text
         try {
-          result = JSON.parse(text)
-        } catch (e) {
-          console.error('[board/rank] 东方财富返回非 JSON:', text.slice(0, 120))
-          return json([], 502, '上游板块资金流数据获取失败')
-        }
-        const data = result?.data?.diff || []
-        const list = Object.values(data).map((item, index) => {
-          // 主力净流入净额（根据周期选择 f62 / f164 / f165），单位：元
-          const rawNet = item[fid]
-          const mainNet = rawNet === '-' ? 0 : parseFloat(rawNet) || 0
-          // 今日主力净流入净占比
-          const netRatio = item.f184 === '-' ? 0 : parseFloat(item.f184) || 0
-          const changePercent = item.f3 === '-' ? 0 : parseFloat(item.f3) || 0
-          return {
-            序号: String(index + 1),
-            名称: item.f14,
-            今日涨跌幅: changePercent,
-            '今日主力净流入-净占比': netRatio,
-            '今日主力净流入-净额': mainNet,
-            今日主力净流入最大股: '',
-            板块类型: sectorType,
+          const sectorType = url.searchParams.get('sector_type') || '行业资金流'
+          const indicator = url.searchParams.get('indicator') || '今日'
+  
+          // 板块类型 → 东方财富板块行情 fs 参数
+          const fsMap = {
+            '行业资金流': 'm:90+t:2',
+            '概念资金流': 'm:90+t:3',
+            '地域资金流': 'm:90+t:1',
           }
-        })
-        return json(list)
+          const fs = fsMap[sectorType] || 'm:90+t:2'
+  
+          // 时间周期 → 主力净流入排序 / 取值字段
+          const fidMap = { '今日': 'f62', '5日': 'f164', '10日': 'f165' }
+          const fid = fidMap[indicator] || 'f62'
+  
+          const res = await fetch(`https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=30&po=1&np=1&fltt=2&invt=2&fid=${fid}&fs=${fs}&fields=f12,f13,f14,f3,f62,f164,f165,f184,f104`, {
+            headers: {
+              'User-Agent':
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+              Referer: 'https://quote.eastmoney.com/',
+            },
+          })
+          console.log('[rank] 东方财富返回2:', res)
+          // 东方财富偶发返回反爬 HTML 页面，需容错避免 500
+          text = await res.text()
+          result = JSON.parse(text)
+          const data = result?.data?.diff || []
+          const list = Object.values(data).map((item, index) => {
+            // 主力净流入净额（根据周期选择 f62 / f164 / f165），单位：元
+            const rawNet = item[fid]
+            const mainNet = rawNet === '-' ? 0 : parseFloat(rawNet) || 0
+            // 今日主力净流入净占比
+            const netRatio = item.f184 === '-' ? 0 : parseFloat(item.f184) || 0
+            const changePercent = item.f3 === '-' ? 0 : parseFloat(item.f3) || 0
+            return {
+              序号: String(index + 1),
+              名称: item.f14,
+              今日涨跌幅: changePercent,
+              '今日主力净流入-净占比': netRatio,
+              '今日主力净流入-净额': mainNet,
+              今日主力净流入最大股: '',
+              板块类型: sectorType,
+            }
+          })
+          return json(list)
+        } catch (e) {
+          console.error('[board/rank] 东方财富返回非 JSON:', e)
+          return json([], 502, '上游板块资金流数据获取失败:' + e)
+        }
       }
 
       // ==============================================

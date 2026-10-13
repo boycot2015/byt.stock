@@ -13,13 +13,14 @@ export interface Stock {
   low: number
   open: number
 }
-
+type Market = 'cn' | 'hk' | 'us'
 export const useStockStore = defineStore(
   'stock',
   () => {
     const selfStocks = ref<Stock[]>([])
     const currentStockCode = ref('399006')
     const currentPeriod = ref('time')
+    const currentMarket = ref<Market>('cn')
     function addSelfStock(stock: Stock) {
       const index = selfStocks.value.findIndex((item) => item.code === stock.code)
       if (index === -1) {
@@ -42,20 +43,25 @@ export const useStockStore = defineStore(
     function setCurrentPeriod(period: string) {
       currentPeriod.value = period
     }
+    function setCurrentMarket (market: Market) {
+      currentMarket.value = market
+    }
     return {
       selfStocks,
       currentStockCode,
       currentPeriod,
+      currentMarket,
       addSelfStock,
       removeSelfStock,
       setCurrentPeriod,
+      setCurrentMarket,
       setCurrentStockCode,
       updateSelfStocks,
     }
   },
   {
     persist: {
-      pick: ['selfStocks', 'currentStockCode', 'currentPeriod'],
+      pick: ['selfStocks', 'currentStockCode', 'currentPeriod', 'currentMarket'],
     },
   },
 )

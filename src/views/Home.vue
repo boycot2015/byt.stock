@@ -2,6 +2,8 @@
   <div class="app min-h-screen">
     <div class="max-w-full md:max-w-6xl lg:max-w-[1280px] mx-auto p-4">
       <MarketIndex />
+      <!-- 板块表现（仅 A 股）：涨跌幅 / 主力净流入 -->
+      <BoardPerformance v-if="currentMarket === 'cn'" />
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div class="col-span-1 md:col-span-3">
           <StockDetail />
@@ -39,8 +41,10 @@ import MarketRank from '@/components/MarketRank.vue'
 import StockNews from '@/components/StockNews.vue'
 import BoardFundFlow from '@/components/BoardFundFlow.vue'
 import { useStockStore } from '@/store/stock'
+import BoardPerformance from '@/components/BoardPerformance.vue'
 
 const stockStore = useStockStore()
 const currentStockCode = computed(() => stockStore.currentStockCode)
+const currentMarket = computed(() => stockStore.currentMarket)
 const isFound = computed(() => currentStockCode.value && ['00', '15', '16', '51', '52', '58'].includes(currentStockCode.value.slice(0, 2)))
 </script>

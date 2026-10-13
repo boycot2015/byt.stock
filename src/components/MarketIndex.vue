@@ -12,6 +12,7 @@
         <a-button type="primary" size="small" @click="toggleSimple">{{ simple ? '预览' : '列表' }}</a-button>
       </div>
     </div>
+    
     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
       <div v-for="item in indexList" :key="item.code"
         :class="item.change >= 0 ? 'bg-[var(--error-bg)]' : 'bg-[var(--success-bg)]'"
@@ -20,7 +21,10 @@
           <span class="font-medium">{{ item.name }}</span>
           <span class="text-sm text-gray-500 hidden md:block">{{ item.code }}</span>
         </div>
-        <TimeChart :data="item.data || []" v-if="!simple && currentMarket === 'cn'" :simple="true" className="!h-15 md:!h-30" />
+        <template v-if="!simple">
+          <TimeChart v-if="item.data && item.data.length && item.preClose" :data="item.data" :session="currentMarket" :simple="true" className="!h-15 md:!h-30" />
+          <div v-else class="h-15 md:h-30 flex items-center justify-center text-xs text-gray-400">暂无分时</div>
+        </template>
         <div class="flex items-center justify-between flex-col md:flex-row md:items-end">
           <span class="text-xl md:text-2xl font-bold">{{ item.price.toFixed(2) }}</span>
           <div class="text-right">
@@ -37,7 +41,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { getMarketIndex, getStockTimeKline, type MarketIndex as MarketIndexType } from '@/api/stock'
 import { useStockStore } from '@/store/stock'
 import { useTradingTime } from '@/hooks/useTradingTime'
@@ -46,19 +50,43 @@ const { getPollInterval } = useTradingTime()
 const stockStore = useStockStore()
 const indexList = ref<MarketIndexType[]>([])
 const simple = ref(true)
-const marketTabs = [
+type Market = 'cn' | 'hk' | 'us'
+const marketTabs: { label: string; value: Market }[] = [
   { label: 'A股', value: 'cn' },
   { label: '港股', value: 'hk' },
   { label: '美股', value: 'us' },
 ]
-const currentMarket = ref('cn')
+const currentMarket = computed(() => stockStore.currentMarket)
+// 港股/美股指数 → 东方财富 secid（A 股走原 6 位代码逻辑）
+const HK_INDEX_SECID: Record<string, string> = {
+  HSI: '100.HSI',
+  HSTECH: '124.HSTECH',
+  HSCCI: '124.HSCCI'
+}
+const US_INDEX_SECID: Record<string, string> = {
+  DJIA: '100.DJIA',
+  NDX: '100.NDX',
+  SPX: '100.SPX'
+}
 const fetchData = async () => {
   indexList.value = await getMarketIndex(currentMarket.value)
-  if (!simple.value && currentMarket.value === 'cn')
-    await Promise.allSettled(indexList.value.map(async (item) => {
-      const quote = await getStockTimeKline(item.code.slice(-6))
-      item.data = quote || []
-    }))
+  if (simple.value) return
+  await Promise.allSettled(indexList.value.map(async (item) => {
+    if (currentMarket.value === 'hk') {
+      const secid = HK_INDEX_SECID[item.code]
+      if (!secid) return // HSCEI 等无分时数据源
+      const quote = (await getStockTimeKline(undefined, secid)) || []
+      // 港/美指数 trends2 无 preClose，用行情接口返回的真实昨收覆盖，避免图表除零
+      item.data = quote.map((p: any) => ({ ...p, preClose: item.preClose || p.preClose || 0 }))
+    } else if (currentMarket.value === 'us') {
+      const secid = US_INDEX_SECID[item.code]
+      if (!secid) return // IXIC 等无分时数据源
+      const quote = (await getStockTimeKline(undefined, secid)) || []
+      item.data = quote.map((p: any) => ({ ...p, preClose: item.preClose || p.preClose || 0 }))
+    } else {
+      item.data = (await getStockTimeKline(item.code.slice(-6))) || []
+    }
+  }))
 }
 const handleClick = (item: MarketIndexType) => {
   // 仅 A 股指数可跳转到个股详情（代码取后 6 位）
@@ -66,8 +94,8 @@ const handleClick = (item: MarketIndexType) => {
     stockStore.setCurrentStockCode(item.code.slice(-6))
   }
 }
-const changeMarket = (market: string) => {
-  currentMarket.value = market
+const changeMarket = (market: Market) => {
+  stockStore.setCurrentMarket(market)
   fetchData()
 }
 const toggleSimple = () => {

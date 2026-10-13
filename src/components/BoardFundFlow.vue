@@ -1,5 +1,5 @@
 <template>
-  <div class="board-fund-flow p-4 shadow-sm mb-4 bg-[var(--color-bg)]">
+  <div id="board-fund-flow" class="board-fund-flow p-4 shadow-sm mb-4 bg-[var(--color-bg)]">
     <!-- 板块类型 + 时间周期 切换 -->
     <div class="flex flex-wrap justify-between items-center !mb-3 gap-2">
       <div class="flex items-center gap-2">

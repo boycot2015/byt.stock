@@ -140,10 +140,10 @@ export const getStockKline = (code: string, period: string, count = 100) => {
 }
 
 // 获取分时K线数据
-export const getStockTimeKline = (code: string) => {
+export const getStockTimeKline = (code?: string, secid?: string) => {
   return request<any, KlineItem[]>('/stock/time-kline', {
     method: 'GET',
-    params: { code },
+    params: secid ? { secid } : { code },
   })
 }
 
